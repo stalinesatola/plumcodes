@@ -1,0 +1,44 @@
+{
+  "//": "RESET 2026-08-30 — foco em Gold/USD (frxXAUUSD). Bots desativados ate o quant-researcher achar estrategia com expectancy > 0.",
+
+  "account": {
+    "mode": "demo",
+    "currency": "USD"
+  },
+
+  "risk": {
+    "dailyStopLossPct": 8,
+    "dailyTakeProfitPct": 12,
+    "maxConcurrentBots": 2,
+    "maxOpenContractsPerBot": 1,
+    "hardFloorBalance": 5,
+    "globalLossStreakPause": 6,
+    "cooldownMinutes": 30
+  },
+
+  "learning": {
+    "enabled": true,
+    "window": 40,
+    "minSample": 25,
+    "exploreTrades": 10,
+    "killWinrate": 0.40,
+    "probationStake": 0.5,
+    "banditSafety": 1.02,
+    "tuneStep": 0.1,
+    "persistPath": "data/learn-state.json"
+  },
+
+  "ml": {
+    "enabled": true,
+    "pythonPath": "python",
+    "scriptPath": "ml/predictor.py",
+    "minEdge": 0.0
+  },
+
+  "session": {
+    "dailyResetUtc": "00:00",
+    "reconnect": { "pingIntervalSec": 20, "maxBackoffSec": 60 }
+  },
+
+  "bots": []
+}
