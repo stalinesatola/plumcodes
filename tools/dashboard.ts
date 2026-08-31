@@ -183,6 +183,7 @@ interface Model {
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
+  marketSchedules: Record<string, { open: boolean; intervals: Array<{ open: number; close: number }>; note: string }>;
   session: any;
   botStatus: { ts: number; bots: any[]; risk: any } | null;
   monitorMode: "demo" | "real";
@@ -416,52 +417,56 @@ function render(m: Model, cfg: any): void {
     buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
   }
 
-  // ---- MARKETS — comparação (★ mercado com melhor expectancy) ----
+  // ---- MARKETS — relógio de sessões (só Gold opera; resto é referência) ----
   const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: PANEL_H };
   buf.push(...box(strat, " markets ", T.blue));
   const bots: any[] = cfg.bots ?? [];
   const dow = new Date().getUTCDay();
   const isWeekday = dow >= 1 && dow <= 5;
 
-  const mktRows = MARKETS.map((mk2) => {
-    const cl = m.trades.closed.filter((c) => c.symbol === mk2.symbol);
-    const n = cl.length;
-    const w = cl.filter((c) => c.isWin).length;
-    const rSum = cl.reduce((s, c) => s + c.r, 0);
-    const exp = n ? rSum / n : 0;
-    const sessionOpen = isWeekday && nowUtcH >= mk2.session[0] && nowUtcH < mk2.session[1];
-    const symBots = bots.filter((b) => b.symbol === mk2.symbol && b.enabled);
-    const anyOpen = m.trades.open.some((o) => symBots.some((b) => b.id === o.botId));
-    const anyStopped = symBots.some((b) => m.botStatus?.bots?.find((x: any) => x.id === b.id)?.stopped);
-    let state: string;
-    if (symBots.length === 0) state = `${T.dim}—`;
-    else if (anyStopped) state = `${T.red}PARADO`;
-    else if (anyOpen) state = `${T.yellow}EM POSIÇÃO`;
-    else if (!sessionOpen) state = `${T.dim}${isWeekday ? "fora da janela" : "fim de semana"}`;
-    else state = `${T.green}analisando`;
-    return { mk2, n, w, rSum, exp, sessionOpen, state };
-  });
-  const ranked = [...mktRows].sort((a, b) => b.exp - a.exp);
-  const leaderSym = ranked.find((r) => r.n >= 3)?.mk2.symbol;
+  const mkStat = (mk2: (typeof MARKETS)[number]) => {
+    const sc = m.marketSchedules[mk2.symbol];
+    if (sc && sc.intervals.length) {
+      const ss = marketSince(sc.intervals);
+      return { open: sc.open && ss.open, sinceMs: ss.sinceMs, untilMs: ss.untilMs, label: ss.label };
+    }
+    // fallback: janela de sessão + dia útil
+    const open = isWeekday && nowUtcH >= mk2.session[0] && nowUtcH < mk2.session[1];
+    const toOpen = ((mk2.session[0] - nowUtcH + 24) % 24) * 3600_000;
+    return { open, sinceMs: 0, untilMs: open ? (mk2.session[1] - nowUtcH) * 3600_000 : toOpen, label: `abre em ${fmtShort(toOpen)}` };
+  };
 
   let sr = 0;
-  buf.push(put(strat, sr++, 0, `${T.dim}${pad("", 18)}${pad("sess", 6)}${pad("trades", 8)}${pad("acerto", 8)}R${RESET}`));
-  for (const r of ranked) {
-    if (sr >= strat.h - 2) break;
-    const star = r.mk2.symbol === leaderSym ? T.yellow + "★" : " ";
-    const dotc = r.sessionOpen ? T.green + "●" : T.dim + "○";
-    const wr = r.n ? `${((r.w / r.n) * 100).toFixed(0)}%` : "—";
-    const rc = r.rSum >= 0 ? T.green : T.red;
-    const nameShort = r.mk2.label.split(" · ")[0]!;
+  const gold = MARKETS.find((x) => x.symbol === "frxXAUUSD")!;
+  const others = MARKETS.filter((x) => x.symbol !== "frxXAUUSD");
+  for (const mk2 of [gold, ...others]) {
+    if (sr >= strat.h - 3) break;
+    const st = mkStat(mk2);
+    const traded = bots.some((b) => b.symbol === mk2.symbol && b.enabled);
+    const dotc = st.open ? T.green + "●" : T.dim + "○";
+    const nameShort = mk2.label.split(" · ")[0]!;
+    const timing = st.open
+      ? `${T.green}aberto${RESET} ${T.dim}${pad(fmtShort(st.sinceMs), 7)}${T.dim}fecha ${fmtShort(st.untilMs)}`
+      : `${T.dim}fechado · abre ${fmtShort(st.untilMs)}`;
     buf.push(
-      put(
-        strat,
-        sr++,
-        0,
-        `${star}${RESET} ${T.text}${pad(nameShort, 15)}${RESET}${dotc}${RESET}   ${T.dim}${pad(String(r.n) + "t", 7)}${RESET}${pad(wr, 8)}${rc}${r.rSum >= 0 ? "+" : ""}${r.rSum.toFixed(1)}${RESET}  ${r.state}${RESET}`,
-      ),
+      put(strat, sr++, 0, `${dotc}${RESET} ${T.text}${pad(nameShort + (traded ? T.cyan + " ◀" : ""), 13)}${RESET}${timing}${RESET}`),
     );
   }
+  // rodapé: desempenho do Gold (único que opera)
+  const gcl = m.trades.closed.filter((c) => c.symbol === "frxXAUUSD" || !c.symbol);
+  const gw = gcl.filter((c) => c.isWin).length;
+  const gR = gcl.reduce((s, c) => s + c.r, 0);
+  buf.push(put(strat, strat.h - 3, 0, `${T.border}${"─".repeat(strat.w - 4)}${RESET}`));
+  buf.push(
+    put(
+      strat,
+      strat.h - 2,
+      0,
+      gcl.length
+        ? `${T.dim}Gold: ${T.text}${gcl.length}t${T.dim} · acerto ${T.text}${((gw / gcl.length) * 100).toFixed(0)}%${T.dim} · ${gR >= 0 ? T.green : T.red}${gR >= 0 ? "+" : ""}${gR.toFixed(1)}R${RESET}`
+        : `${T.dim}Gold: sem operações fechadas ainda${RESET}`,
+    ),
+  );
 
   const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
@@ -635,6 +640,7 @@ async function main(): Promise<void> {
     learn: loadLearn(),
     trades: loadTrades(),
     market: null,
+    marketSchedules: {},
     session: loadSession(),
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
@@ -669,6 +675,14 @@ async function main(): Promise<void> {
         { open: (midnight + 22 * 3600000) / 1000, close: (midnight + 86399000) / 1000 },
       ],
     };
+    const S = Math.floor(now / 1000);
+    const iv = (fromH: number, toH: number) => [{ open: S + fromH * 3600, close: S + toH * 3600 }];
+    m.marketSchedules = {
+      frxXAUUSD: { open: true, note: "Fridays: Closes early (at 20:55)", intervals: iv(-6.3, 2.1) },
+      OTC_GDAXI: { open: true, note: "", intervals: iv(-1.7, 4.9) },
+      OTC_N225: { open: false, note: "", intervals: iv(3.4, 23.4) },
+      OTC_AS51: { open: false, note: "", intervals: iv(6.1, 12.6) },
+    };
     m.session = {
       openBalance: 9945.88,
       openTs: now - 9_600_000,
@@ -696,17 +710,10 @@ async function main(): Promise<void> {
         { ts: now - 26_400_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
         { ts: now - 24_900_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
         { ts: now - 23_100_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
+        { ts: now - 12_600_000, botId: "xau-meanrev-24h", symbol: "frxXAUUSD", tag: "mr_long", profit: -1.0, isWin: false, r: -1.0 },
         { ts: now - 8_600_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 6_100_000, botId: "xau-meanrev-24h", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.5, isWin: true, r: 1.5 },
         { ts: now - 4_200_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
-        { ts: now - 70_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
-        { ts: now - 68_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
-        { ts: now - 66_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_dn", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 20_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
-        { ts: now - 71_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 69_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_dn", profit: 0.81, isWin: true, r: 0.81 },
-        { ts: now - 67_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 72_000_000, botId: "sydney-momo", symbol: "OTC_AS51", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 70_500_000, botId: "sydney-momo", symbol: "OTC_AS51", tag: "idx_dn", profit: -1.0, isWin: false, r: -1.0 },
       ],
     };
     m.botStatus = {
@@ -814,10 +821,19 @@ async function main(): Promise<void> {
         }
         await client.subscribeTicks(s).catch(() => void 0);
       }
-      m.market = await client.marketSchedule(curSym()).catch(() => null);
+      await fetchSchedules();
     } catch (e) {
       m.err = (e as Error).message.slice(0, 40);
     }
+  }
+
+  async function fetchSchedules(): Promise<void> {
+    if (!client || !m.connected) return;
+    for (const mk of MARKETS) {
+      const sc = await client.marketSchedule(mk.symbol).catch(() => null);
+      if (sc) m.marketSchedules[mk.symbol] = sc;
+    }
+    m.market = m.marketSchedules[curSym()] ?? m.market;
   }
 
   await bringUp(m.monitorMode);
@@ -841,9 +857,7 @@ async function main(): Promise<void> {
 
   const timer = setInterval(async () => {
     refresh();
-    if (++mktTick % 180 === 0 && client && m.connected) {
-      m.market = await client.marketSchedule(curSym()).catch(() => m.market);
-    }
+    if (++mktTick % 180 === 0) await fetchSchedules();
     render(m, cfg);
   }, 1000);
   void timer;
@@ -878,7 +892,7 @@ async function main(): Promise<void> {
         m.priceIdx = (m.priceIdx + (key === "n" ? 1 : symbols.length - 1)) % symbols.length;
         out(`${ESC}2J`);
         render(m, cfg);
-        if (client && m.connected) void client.marketSchedule(curSym()).then((x) => (m.market = x));
+        m.market = m.marketSchedules[curSym()] ?? m.market;
       } else if (key === "a") {
         if (m.monitorMode === "real") {
           void bringUp("demo").then(() => render(m, cfg));

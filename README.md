@@ -142,14 +142,15 @@ Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with
 `node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` currently enables **five** strategies on a demo account:
-- **Gold / USD** (`frxXAUUSD`, Multipliers) — `gold_meanrev_london`, `gold_ny_momo`
-- **Tokyo** (`OTC_N225`), **Sydney** (`OTC_AS51`), **Frankfurt** (`OTC_GDAXI`) —
-  `idx_session_momo`, a 15-minute binary CALL/PUT momentum play in each index's home
-  session. The indices offer **no Multipliers** (only 15 m–1 h binary at ~+82 %
-  payout → ~55 % breakeven) and Deriv serves almost no historical M1 data for them,
-  so **they can't be backtested** — they run purely to forward-test. The `markets`
-  panel in the monitor ranks all four by realized expectancy.
+`config.json` currently trades **only Gold / USD** (`frxXAUUSD`, Multipliers) — three
+setups on the one pair to study it in depth: `xau-meanrev-london` (Bollinger + RSI in
+the London window), `xau-ny-momo` (NY-session momentum), and `xau-meanrev-24h` (the
+mean-reversion logic with no session filter, for more samples). The index markets
+(Tokyo `OTC_N225`, Sydney `OTC_AS51`, Frankfurt `OTC_GDAXI`) are **disabled** — they
+stay in the config only so the monitor's `markets` panel can show their session
+clock (open / closed / opens-in), which is useful context for Gold since its price
+tracks the Asian → London → NY handover. Deriv offers no Multipliers and almost no
+M1 history for indices, so they can't be backtested anyway.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 
