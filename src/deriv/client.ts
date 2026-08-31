@@ -294,6 +294,80 @@ export class DerivClient extends EventEmitter {
     return Number(res.balance?.balance ?? this.account?.balance ?? 0);
   }
 
+  /**
+   * Horario de negociacao de um simbolo (hoje + amanha, UTC). Combina o flag ao
+   * vivo `exchange_is_open` com o calendario `trading_times` (intervalos, fecho
+   * antecipado de sexta, feriados).
+   */
+  async marketSchedule(symbol: string): Promise<{
+    open: boolean;
+    live: boolean;
+    intervals: Array<{ open: number; close: number }>;
+    note: string;
+  }> {
+    let live = true;
+    try {
+      const as = await this.send({ active_symbols: "brief" });
+      const s = (as.active_symbols ?? []).find((x: any) => x.underlying_symbol === symbol);
+      if (s) live = s.exchange_is_open === 1 && s.is_trading_suspended !== 1;
+    } catch {
+      /* usa so o calendario */
+    }
+
+    const intervals: Array<{ open: number; close: number }> = [];
+    let note = "";
+    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    for (const dOff of [0, 1]) {
+      const day = new Date(Date.now() + dOff * 86_400_000);
+      const dateStr = day.toISOString().slice(0, 10);
+      const dowName = DOW[day.getUTCDay()]!;
+      try {
+        const tt = await this.send({ trading_times: dateStr });
+        let sym: any;
+        for (const mk of tt.trading_times?.markets ?? [])
+          for (const sm of mk.submarkets ?? [])
+            for (const x of sm.symbols ?? [])
+              if (x.underlying_symbol === symbol || x.symbol === symbol) sym = x;
+        if (!sym || !(sym.trading_days ?? []).includes(dowName)) continue;
+
+        const toUnix = (hms: string): number => {
+          const [h, m, s] = hms.split(":").map(Number);
+          return Math.floor(
+            Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h ?? 0, m ?? 0, s ?? 0) / 1000,
+          );
+        };
+        const opens: string[] = sym.times?.open ?? [];
+        const closes: string[] = sym.times?.close ?? [];
+        const dayIvs: Array<{ open: number; close: number }> = [];
+        for (let i = 0; i < Math.min(opens.length, closes.length); i++) {
+          dayIvs.push({ open: toUnix(opens[i]!), close: toUnix(closes[i]!) });
+        }
+        for (const ev of sym.events ?? []) {
+          const forFriday = dowName === "Fri" && /friday/i.test(ev.dates ?? "");
+          const forDate = new RegExp(dateStr).test(ev.dates ?? "");
+          if ((forFriday || forDate) && /close|early|holiday|christmas|new year|good friday/i.test(ev.descrip ?? "")) {
+            const mt = (ev.descrip ?? "").match(/(\d{1,2}):(\d{2})/);
+            if (mt) {
+              const early = toUnix(`${mt[1]}:${mt[2]}:00`);
+              for (const iv of dayIvs) if (iv.open < early && iv.close > early) iv.close = early;
+            } else if (forDate) {
+              dayIvs.length = 0;
+            }
+            note = ev.descrip ?? note;
+          }
+        }
+        intervals.push(...dayIvs);
+      } catch {
+        /* ignore este dia */
+      }
+    }
+    intervals.sort((a, b) => a.open - b.open);
+    const nowU = Math.floor(Date.now() / 1000);
+    const inIv = intervals.some((iv) => nowU >= iv.open && nowU < iv.close);
+    return { open: live && inIv, live, intervals, note };
+  }
+
   /** Historico de ticks + pip_size (numero de casas decimais) do simbolo. */
   async recentTicks(symbol: string, count: number): Promise<{ prices: number[]; pipSize: number }> {
     const res = await this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });

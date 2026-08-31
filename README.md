@@ -102,11 +102,26 @@ node --env-file=.env tools/dashboard.ts             # btop-style monitor TUI
 ### Monitor (`tools/dashboard.ts`)
 
 A full-screen terminal dashboard in the spirit of [btop](https://github.com/aristocratos/btop):
-rounded panels, gradient meters, braille price graphs. Connects to the demo account and
-shows balance, session P/L against the daily stop/take, risk state, the registered
-strategies, live braille sparklines for the tracked symbols, the learning state
-(`data/learn-state.json`), and a tail of `data/bot.log`. `--symbols a,b,c` to pick the
-tickers, `--once` to print one frame and exit. Truecolor terminal recommended.
+rounded panels, gradient meters, braille price graphs. It **only observes** — never
+trades. Panels:
+
+- **account** — balance, the day's P/L *from the bots* against the daily stop/take
+  meters, this session's opening balance, the previous session's close
+- **risk + market** — risk state, and the instrument's market hours: open/closed,
+  how long it's been open, how long until it closes (from `trading_times`)
+- **bots** — per bot: its UTC window, live state (`ANALISANDO` / `EM POSIÇÃO` /
+  `FORA DA JANELA` / `PARADO` / market closed), how long it's been analyzing for the
+  next entry, and its W/L + cumulative R
+- **price · active positions · history · learning · log** — live braille chart with
+  position markers, open positions with unrealized R and SL/TP, closed-trade history
+  with cumulative R, the bandit/ML state, and a tail of `data/bot.log`
+
+Shortcuts: `q` quit · `r` refresh · `a` switch the monitor between demo/real (real
+asks to confirm). `--symbols X` to change the instrument, `--once` to print one frame.
+Truecolor terminal recommended (Windows Terminal works).
+
+Open positions and history come from `data/trades.jsonl` (written by the bot);
+session balances from `data/session.json`.
 
 `config.json` ships with `bots: []` — nothing trades until you add a strategy that
 survived the research loop. It never did, so the array is empty by design.

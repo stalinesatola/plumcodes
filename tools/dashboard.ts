@@ -1,14 +1,21 @@
 /**
  * dashboard.ts — monitor TUI estilo btop para o Deriv Quant Research Framework.
  *
- *   node --env-file=.env tools/dashboard.ts [--symbols frxXAUUSD,R_75,R_100] [--once]
+ *   node --env-file=.env tools/dashboard.ts [--symbols frxXAUUSD] [--once]
  *
- * Conecta na conta demo, assina saldo + ticks dos símbolos, e desenha painéis
- * (conta / preços com gráfico braille / risco / estratégias / aprendizado / log)
- * com cantos arredondados, medidores em gradiente e sparklines — no espírito do btop.
+ * Painéis (cantos arredondados, medidores em gradiente, gráfico braille):
+ *  - account   saldo, P/L do dia dos bots vs stop/take, abertura da sessão,
+ *              fecho da sessão anterior
+ *  - risk+market  estado do risco + horário do mercado (aberto/fechado, aberto
+ *                 há X, fecha em Y)
+ *  - bots      por bot: janela UTC, estado (ANALISANDO / EM POSIÇÃO / FORA DA
+ *              JANELA / PARADO / mercado fechado), há quanto analisa, W/L, R
+ *  - price · active positions · history · learning · log
  *
- * `--once` renderiza um quadro no stdout e sai (para inspeção/CI).
- * Sem dependências além de `ws` (via DerivClient). Ctrl+C restaura o terminal.
+ * Atalhos: [q] sair · [r] atualizar · [a] alternar conta demo/real (a real pede
+ * confirmação; o monitor NUNCA opera, só observa).
+ *
+ * `--once` renderiza um quadro no stdout e sai. Sem dependências além de `ws`.
  */
 process.env.LOG_SILENT = "1"; // silencia o logger do DerivClient (antes do import)
 import { readFileSync, existsSync } from "node:fs";
@@ -20,6 +27,7 @@ const ESC = "\x1b[";
 const rgb = (r: number, g: number, b: number) => `${ESC}38;2;${r};${g};${b}m`;
 const RESET = `${ESC}0m`;
 const BOLD = `${ESC}1m`;
+const bgRed = `${ESC}48;2;150;58;58m`;
 
 const T = {
   border: rgb(64, 74, 92),
@@ -173,7 +181,55 @@ interface Model {
   logLines: string[];
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
+  market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
+  session: any;
+  botStatus: { ts: number; bots: any[]; risk: any } | null;
+  monitorMode: "demo" | "real";
+  confirmReal: boolean;
   err: string;
+}
+
+function loadSession(): any {
+  try {
+    return JSON.parse(readFileSync("data/session.json", "utf8"));
+  } catch {
+    return null;
+  }
+}
+function parseBotStatus(lines: string[]): { ts: number; bots: any[]; risk: any } | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const mt = lines[i]!.match(/^\[([^\]]+)\][^{]*main status (\{.*\})\s*$/);
+    if (mt) {
+      try {
+        const o = JSON.parse(mt[2]!);
+        return { ts: Date.parse(mt[1]!), bots: o.bots ?? [], risk: o.risk ?? {} };
+      } catch {
+        /* linha truncada */
+      }
+    }
+  }
+  return null;
+}
+function fmtShort(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h${String(mm).padStart(2, "0")}m` : `${mm}m${String(s % 60).padStart(2, "0")}s`;
+}
+function marketSince(iv: Array<{ open: number; close: number }>): { open: boolean; sinceMs: number; untilMs: number; label: string } {
+  const now = Date.now() / 1000;
+  for (const x of iv) {
+    if (now >= x.open && now < x.close) {
+      return { open: true, sinceMs: (now - x.open) * 1000, untilMs: (x.close - now) * 1000, label: "" };
+    }
+  }
+  const next = iv.filter((x) => x.open > now).sort((a, b) => a.open - b.open)[0];
+  return {
+    open: false,
+    sinceMs: 0,
+    untilMs: next ? (next.open - now) * 1000 : 0,
+    label: next ? `abre em ${fmtShort((next.open - now) * 1000)}` : "sem sessão agendada",
+  };
 }
 
 function loadLearn(): any {
@@ -293,68 +349,132 @@ function render(m: Model, cfg: any): void {
   buf.push(at(1, 2) + pad(clip(head, W - 3), W - 3));
 
   const symbols = [...m.prices.keys()];
+  const sym0 = symbols[0] ?? "frxXAUUSD";
   const top = 3;
+  const PANEL_H = 11;
   const colW = Math.floor((W - 3) / 3);
+  const nowUtcH = new Date().getUTCHours() + new Date().getUTCMinutes() / 60;
 
-  // ---- ACCOUNT (topo-esquerda) ----
-  const acc: Rect = { x: 2, y: top, w: colW - 1, h: 8 };
-  buf.push(...box(acc, " account ", T.cyan));
-  const pnl = m.balance - m.startBalance;
-  const pnlPct = m.startBalance ? (pnl / m.startBalance) * 100 : 0;
-  const pnlCol = pnl > 0 ? T.green : pnl < 0 ? T.red : T.dim;
-  buf.push(put(acc, 0, 0, `${T.dim}${m.accountId}  ${m.isDemo ? T.blue + "DEMO" : T.red + "REAL"}${RESET}`));
-  buf.push(put(acc, 1, 0, `${T.text}${BOLD}${fmtMoney(m.balance, m.currency)}${RESET}`));
-  buf.push(
-    put(acc, 2, 0, `${T.dim}session P/L ${pnlCol}${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)${RESET}`),
-  );
+  // pnl do dia = realizado pelos nossos bots (do bot status), não delta de saldo
+  const dayPnl = m.botStatus?.risk?.pnlToday ?? 0;
+  const dayPnlPct = m.botStatus?.risk?.pnlTodayPct ?? 0;
   const slPct = cfg.risk?.dailyStopLossPct ?? 10;
   const tpPct = cfg.risk?.dailyTakeProfitPct ?? 15;
-  const towardStop = Math.max(0, -pnlPct) / slPct;
-  const towardTake = Math.max(0, pnlPct) / tpPct;
-  buf.push(put(acc, 4, 0, meter(towardStop, acc.w - 4, `${T.red}stop ${slPct}%${RESET}`)));
-  buf.push(put(acc, 5, 0, meter(towardTake, acc.w - 4, `${T.green}take ${tpPct}%${RESET}`)));
+  const towardStop = Math.max(0, -dayPnlPct) / slPct;
+  const towardTake = Math.max(0, dayPnlPct) / tpPct;
 
-  // ---- RISK (topo-centro) ----
-  const risk: Rect = { x: 2 + colW, y: top, w: colW - 1, h: 8 };
-  buf.push(...box(risk, " risk ", T.mag));
-  const halted = towardStop >= 1;
-  const state = halted ? T.red + "HALT" : towardTake >= 1 ? T.green + "TARGET" : T.green + "OK";
-  buf.push(put(risk, 0, 0, `${T.dim}state${RESET}    ${BOLD}${state}${RESET}`));
-  buf.push(put(risk, 1, 0, `${T.dim}floor${RESET}    ${T.text}${cfg.risk?.hardFloorBalance ?? 5} ${m.currency}${RESET}`));
-  buf.push(put(risk, 2, 0, `${T.dim}streak → pause${RESET}  ${T.text}${cfg.risk?.globalLossStreakPause ?? 8}${RESET}`));
-  buf.push(put(risk, 3, 0, `${T.dim}max concurrent${RESET} ${T.text}${cfg.risk?.maxConcurrentBots ?? 3}${RESET}`));
-  const nBots = (cfg.bots ?? []).filter((b: any) => b.enabled).length;
-  buf.push(
-    put(risk, 5, 0, `${T.dim}active bots${RESET}   ${nBots === 0 ? T.yellow + "0 — see FINDINGS.md" : T.green + nBots}${RESET}`),
-  );
+  // ---- ACCOUNT ----
+  const acc: Rect = { x: 2, y: top, w: colW - 1, h: PANEL_H };
+  buf.push(...box(acc, " account ", T.cyan));
+  const modeBadge = m.monitorMode === "real" ? `${bgRed}${T.text} REAL ${RESET}` : `${T.blue}DEMO${RESET}`;
+  buf.push(put(acc, 0, 0, `${T.dim}${m.accountId}${RESET}  ${modeBadge}`));
+  buf.push(put(acc, 1, 0, `${T.text}${BOLD}${fmtMoney(m.balance, m.currency)}${RESET}`));
+  const pnlCol = dayPnl > 0 ? T.green : dayPnl < 0 ? T.red : T.dim;
+  buf.push(put(acc, 2, 0, `${T.dim}P/L dia ${pnlCol}${dayPnl >= 0 ? "+" : ""}${dayPnl.toFixed(2)} (${dayPnlPct >= 0 ? "+" : ""}${dayPnlPct.toFixed(2)}%)${RESET}`));
+  buf.push(put(acc, 3, 0, meter(towardStop, acc.w - 4, `${T.red}stop ${slPct}%${RESET}`)));
+  buf.push(put(acc, 4, 0, meter(towardTake, acc.w - 4, `${T.green}take ${tpPct}%${RESET}`)));
+  if (m.session) {
+    const so = m.session.openBalance;
+    const ago = m.session.openTs ? fmtShort(Date.now() - m.session.openTs) : "?";
+    buf.push(put(acc, 6, 0, `${T.dim}abriu ${T.text}${so?.toFixed?.(2) ?? "—"}${T.dim} há ${ago}${RESET}`));
+    if (m.session.prevCloseBalance != null) {
+      const d = m.session.prevOpenBalance != null ? m.session.prevCloseBalance - m.session.prevOpenBalance : null;
+      const dc = d == null ? T.dim : d >= 0 ? T.green : T.red;
+      buf.push(
+        put(acc, 7, 0, `${T.dim}anterior fechou ${T.text}${m.session.prevCloseBalance.toFixed(2)}${d != null ? ` ${dc}${d >= 0 ? "+" : ""}${d.toFixed(2)}` : ""}${RESET}`),
+      );
+    }
+  } else {
+    buf.push(put(acc, 6, 0, `${T.dim}sessão: bot não iniciado${RESET}`));
+  }
 
-  // ---- BOTS (topo-direita) ----
-  const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: 8 };
+  // ---- RISK + MARKET ----
+  const risk: Rect = { x: 2 + colW, y: top, w: colW - 1, h: PANEL_H };
+  buf.push(...box(risk, " risk + market ", T.mag));
+  const stale = m.botStatus ? Date.now() - m.botStatus.ts > 180_000 : true;
+  const halted = m.botStatus?.risk?.halted;
+  const state = halted ? T.red + "HALT" : towardTake >= 1 ? T.green + "TARGET" : m.botStatus && !stale ? T.green + "OK" : T.yellow + "BOT OFFLINE?";
+  buf.push(put(risk, 0, 0, `${T.dim}estado${RESET}  ${BOLD}${state}${RESET}${halted ? ` ${T.red}${String(halted).slice(0, 18)}${RESET}` : ""}`));
+  buf.push(put(risk, 1, 0, `${T.dim}floor ${T.text}${cfg.risk?.hardFloorBalance ?? 5}${T.dim}  streak→pause ${T.text}${cfg.risk?.globalLossStreakPause ?? 8}${T.dim}  loss ${T.text}${m.botStatus?.risk?.lossStreak ?? 0}${RESET}`));
+  // mercado
+  const mkt = m.market;
+  const ms = mkt ? marketSince(mkt.intervals) : null;
+  buf.push(put(risk, 3, 0, `${T.dim}${sym0} mercado${RESET}`));
+  if (mkt && ms) {
+    if (ms.open) {
+      buf.push(put(risk, 4, 0, `  ${T.green}${BOLD}ABERTO${RESET}${T.dim}  aberto há ${T.text}${fmtShort(ms.sinceMs)}${RESET}`));
+      buf.push(put(risk, 5, 0, `  ${T.dim}fecha em ${T.yellow}${fmtShort(ms.untilMs)}${RESET}`));
+    } else {
+      buf.push(put(risk, 4, 0, `  ${T.red}${BOLD}FECHADO${RESET}${T.dim}  ${ms.label}${RESET}`));
+    }
+    if (mkt.note) buf.push(put(risk, 6, 0, `  ${T.dim}${clip(mkt.note, risk.w - 8)}${RESET}`));
+  } else {
+    buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
+  }
+
+  // ---- BOTS (estado / atividade) ----
+  const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: PANEL_H };
   buf.push(...box(strat, " bots ", T.blue));
   const bots: any[] = cfg.bots ?? [];
+  const marketOpen = !mkt || (ms?.open ?? true);
   let sr = 0;
   for (const b of bots) {
     if (sr >= strat.h - 2) break;
+    const p = b.params ?? {};
+    const wStart = p.tradeStart ?? 0;
+    const wEnd = p.tradeEnd ?? 24;
+    const inWindow = nowUtcH >= wStart && nowUtcH < wEnd;
+    const st = m.botStatus?.bots?.find((x: any) => x.id === b.id);
     const hasOpen = m.trades.open.some((o) => o.botId === b.id);
-    const dot = !b.enabled ? T.dim + "○" : hasOpen ? T.yellow + "●" : T.green + "●";
+    const lastClose = m.trades.closed.filter((c) => c.botId === b.id).slice(-1)[0];
+
+    let stateStr: string;
+    let dot: string;
+    if (!b.enabled) {
+      dot = T.dim + "○";
+      stateStr = `${T.dim}desativado${RESET}`;
+    } else if (st?.stopped) {
+      dot = T.red + "●";
+      stateStr = `${T.red}PARADO${RESET}`;
+    } else if (hasOpen) {
+      dot = T.yellow + "●";
+      stateStr = `${T.yellow}EM POSIÇÃO${RESET}`;
+    } else if (!marketOpen) {
+      dot = T.dim + "●";
+      stateStr = `${T.dim}mercado fechado${RESET}`;
+    } else if (!inWindow) {
+      const toOpen = ((wStart - nowUtcH + 24) % 24) * 3600_000;
+      dot = T.dim + "●";
+      stateStr = `${T.dim}fora da janela · abre ${fmtShort(toOpen)}${RESET}`;
+    } else {
+      dot = T.green + "●";
+      const winStartMs = (() => {
+        const d = new Date();
+        d.setUTCHours(Math.floor(wStart), (wStart % 1) * 60, 0, 0);
+        return d.getTime();
+      })();
+      const analysingSince = lastClose ? Math.max(lastClose.ts, winStartMs) : winStartMs;
+      const winEndMs = winStartMs + (wEnd - wStart) * 3600_000;
+      stateStr = `${T.green}ANALISANDO${RESET}${T.dim} ${fmtShort(Date.now() - analysingSince)} · janela −${fmtShort(winEndMs - Date.now())}${RESET}`;
+    }
+
     const bt = m.trades.closed.filter((c) => c.botId === b.id);
     const w = bt.filter((c) => c.isWin).length;
-    const rr = bt.reduce((s, c) => s + c.r, 0);
-    const stat = bt.length
-      ? `${T.dim}${w}/${bt.length - w} ${rr >= 0 ? T.green : T.red}${rr >= 0 ? "+" : ""}${rr.toFixed(1)}R${RESET}`
-      : `${T.dim}—${RESET}`;
-    buf.push(put(strat, sr++, 0, `${dot}${RESET} ${T.text}${b.id}${RESET} ${T.dim}${b.symbol}${RESET}  ${stat}`));
+    const rSum = bt.reduce((s, c) => s + c.r, 0);
+    const rec = bt.length ? `${T.dim}${w}/${bt.length - w} ${rSum >= 0 ? T.green : T.red}${rSum >= 0 ? "+" : ""}${rSum.toFixed(1)}R${RESET}` : `${T.dim}—${RESET}`;
+    buf.push(put(strat, sr++, 0, `${dot}${RESET} ${T.text}${b.id}${RESET} ${T.dim}${wStart}–${wEnd}h${RESET}  ${rec}`));
+    if (sr < strat.h - 2) buf.push(put(strat, sr++, 0, `  ${stateStr}`));
   }
   if (bots.length === 0) buf.push(put(strat, 0, 0, `${T.yellow}config.json → bots: []${RESET}`));
 
-  const sym = symbols[0] ?? "frxXAUUSD";
+  const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
   const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
   const dec = sym.startsWith("frx") ? 2 : 4;
 
   // ---- PRICE (largo) ----
-  const pTop = top + 8;
-  const avail = H - pTop - 1;
+  const pTop = top + PANEL_H;
+  const avail = H - pTop - 2; // -2: reserva a linha do rodapé
   const priceH = Math.max(9, Math.min(16, Math.floor(avail * 0.42)));
   const pr: Rect = { x: 2, y: pTop, w: W - 3, h: priceH };
   const first = ser.length ? ser[0]! : last;
@@ -447,7 +567,7 @@ function render(m: Model, cfg: any): void {
 
   // ---- LEARNING + LOG ----
   const bY = midY + midH;
-  const bH = Math.max(5, H - bY - 1);
+  const bH = Math.max(4, H - bY - 2); // -2: rodapé
   const learnR: Rect = { x: 2, y: bY, w: Math.floor((W - 3) * 0.4), h: bH };
   buf.push(...box(learnR, " learning ", T.mag));
   if (m.learn && m.learn.bots && Object.keys(m.learn.bots).length) {
@@ -479,6 +599,19 @@ function render(m: Model, cfg: any): void {
     buf.push(put(logR, li, 0, c + ln.replace(/\x1b\[[0-9;]*m/g, "") + RESET));
   });
 
+  // ---- rodapé / atalhos ----
+  const acctLabel =
+    m.monitorMode === "real" ? `${T.red}REAL${RESET}` : `${T.blue}DEMO${RESET}`;
+  const mktLbl = m.market
+    ? ms?.open
+      ? `${T.green}${sym0} ABERTO${RESET}${T.dim} · fecha ${fmtShort(ms.untilMs)}`
+      : `${T.red}${sym0} FECHADO${RESET}${T.dim} · ${ms?.label ?? ""}`
+    : `${T.dim}mercado …`;
+  const foot = m.confirmReal
+    ? `${bgRed}${T.text} conectar à CONTA REAL? [s] sim  [n] não ${RESET}`
+    : `${T.dim}[q] sair   [r] atualizar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+  buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
+
   out(buf.join(""));
 }
 
@@ -501,9 +634,14 @@ async function main(): Promise<void> {
     startedAt: Date.now(),
     prices: new Map(symbols.map((s) => [s, [] as number[]])),
     lastTick: new Map(),
-    logLines: loadLog(40),
+    logLines: loadLog(60),
     learn: loadLearn(),
     trades: loadTrades(),
+    market: null,
+    session: loadSession(),
+    botStatus: parseBotStatus(loadLog(60)),
+    monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
+    confirmReal: false,
     err: "",
   };
 
@@ -530,19 +668,32 @@ async function main(): Promise<void> {
   enterAlt();
 
   let client: DerivClient | null = null;
-  if (process.env.DERIV_TOKEN) {
+  let mktTick = 0;
+  const sym0 = symbols[0] ?? "frxXAUUSD";
+
+  async function bringUp(mode: "demo" | "real"): Promise<void> {
+    if (!process.env.DERIV_TOKEN) {
+      m.err = "DERIV_TOKEN ausente";
+      return;
+    }
+    try {
+      client?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    m.monitorMode = mode;
+    m.connected = false;
+    m.err = "";
+    for (const s of symbols) m.prices.set(s, []);
     client = new DerivClient({
       token: process.env.DERIV_TOKEN,
       appId: process.env.DERIV_APP_ID || "1089",
       restBase: process.env.DERIV_REST_BASE || "https://api.derivws.com",
-      mode: cfg.account?.mode === "real" ? "real" : "demo",
+      mode,
       pingIntervalSec: 25,
       maxBackoffSec: 30,
     });
-    client.on("balance", ({ balance }: any) => {
-      m.balance = balance;
-      if (!m.startBalance) m.startBalance = balance;
-    });
+    client.on("balance", ({ balance }: any) => (m.balance = balance));
     client.on("tick", ({ symbol, quote }: any) => {
       m.lastTick.set(symbol, quote);
       const arr = m.prices.get(symbol);
@@ -553,56 +704,94 @@ async function main(): Promise<void> {
     });
     client.on("close", () => (m.connected = false));
     client.on("open", () => (m.connected = true));
-
-    (async () => {
-      try {
-        const acc = await client!.connect();
-        m.accountId = acc.accountId;
-        m.isDemo = acc.isDemo;
-        m.currency = acc.currency;
-        m.balance = acc.balance;
-        m.startBalance = acc.balance;
-        m.connected = true;
-        m.balance = (await client!.subscribeBalance()) || acc.balance;
-        for (const s of symbols) {
-          try {
-            const { prices } = await client!.recentTicks(s, 300);
-            m.prices.set(s, prices);
-          } catch {
-            /* símbolo fechado / indisponível */
-          }
-          await client!.subscribeTicks(s).catch(() => void 0);
+    try {
+      const acc = await client.connect();
+      m.accountId = acc.accountId;
+      m.isDemo = acc.isDemo;
+      m.currency = acc.currency;
+      m.balance = acc.balance;
+      m.startBalance = acc.balance;
+      m.connected = true;
+      m.balance = (await client.subscribeBalance()) || acc.balance;
+      for (const s of symbols) {
+        try {
+          const { prices } = await client.recentTicks(s, 300);
+          m.prices.set(s, prices);
+        } catch {
+          /* símbolo fechado / indisponível */
         }
-      } catch (e) {
-        m.err = (e as Error).message.slice(0, 40);
+        await client.subscribeTicks(s).catch(() => void 0);
       }
-    })();
+      m.market = await client.marketSchedule(sym0).catch(() => null);
+    } catch (e) {
+      m.err = (e as Error).message.slice(0, 40);
+    }
   }
 
-  if (once) {
-    // dá um tempo para conectar e pegar 1 leitura
-    await new Promise((r) => setTimeout(r, process.env.DERIV_TOKEN ? 9000 : 200));
-    m.logLines = loadLog(40);
+  await bringUp(m.monitorMode);
+
+  const refresh = () => {
+    m.logLines = loadLog(60);
     m.learn = loadLearn();
     m.trades = loadTrades();
+    m.session = loadSession();
+    m.botStatus = parseBotStatus(m.logLines);
+  };
+
+  if (once) {
+    await new Promise((r) => setTimeout(r, process.env.DERIV_TOKEN ? 9000 : 200));
+    refresh();
     render(m, cfg);
     out("\n");
     client?.disconnect();
     process.exit(0);
   }
 
-  const timer = setInterval(() => {
-    m.logLines = loadLog(40);
-    m.learn = loadLearn();
-    m.trades = loadTrades();
+  const timer = setInterval(async () => {
+    refresh();
+    if (++mktTick % 180 === 0 && client && m.connected) {
+      m.market = await client.marketSchedule(sym0).catch(() => m.market);
+    }
     render(m, cfg);
   }, 1000);
+  void timer;
+
   process.stdout.on("resize", () => {
     out(`${ESC}2J`);
     render(m, cfg);
   });
-  // keep alive
-  void timer;
+
+  // ---- atalhos de teclado ----
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (key: string) => {
+      if (key === "" || key === "q") {
+        leaveAlt();
+        process.exit(0);
+      } else if (m.confirmReal) {
+        if (key === "s" || key === "y") {
+          m.confirmReal = false;
+          void bringUp("real").then(() => render(m, cfg));
+        } else if (key === "n" || key === "") {
+          m.confirmReal = false;
+          render(m, cfg);
+        }
+      } else if (key === "r") {
+        out(`${ESC}2J`);
+        refresh();
+        render(m, cfg);
+      } else if (key === "a") {
+        if (m.monitorMode === "real") {
+          void bringUp("demo").then(() => render(m, cfg));
+        } else {
+          m.confirmReal = true;
+          render(m, cfg);
+        }
+      }
+    });
+  }
 }
 
 main().catch((e) => {

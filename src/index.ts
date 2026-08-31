@@ -20,6 +20,7 @@ import { MlBridge } from "./ml/bridge.ts";
 import { Bot } from "./bot.ts";
 import { getStrategy } from "./strategies/index.ts";
 import { createLogger } from "./util/logger.ts";
+import { sessionOpen, sessionTick } from "./util/session.ts";
 
 const log = createLogger("main");
 
@@ -69,6 +70,7 @@ async function main() {
 
   const balance = await client.subscribeBalance();
   risk.init(balance || acc.balance);
+  sessionOpen(balance || acc.balance);
 
   for (const bc of enabled) {
     const bot = new Bot({ cfg: bc, client, risk, learner, ml, currency: cfg.account.currency });
@@ -104,6 +106,7 @@ async function main() {
   client.on("open", () => log.info("reconectado e re-subscrito"));
 
   const statusTimer = setInterval(() => {
+    sessionTick(risk.balance);
     log.info("status", { risk: risk.status, bots: bots.map((b) => b.status) });
     if (risk.isHalted && bots.every((b) => !b.isOpen)) {
       log.warn("risco global HALT e sem contratos abertos — encerrando");
