@@ -4,6 +4,9 @@ const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 type Level = keyof typeof LEVELS;
 
 const minLevel: Level = (process.env.LOG_LEVEL as Level) || "info";
+// LOG_SILENT=1 -> nao escreve no console (so no arquivo). Usado pela TUI (tools/dashboard.ts)
+// para o output do cliente Deriv nao corromper o desenho dos paineis. Lido em runtime.
+const isSilent = () => process.env.LOG_SILENT === "1";
 
 try {
   mkdirSync("data", { recursive: true });
@@ -17,8 +20,10 @@ function write(level: Level, scope: string, msg: string, extra?: unknown) {
   const line =
     `[${ts}] ${level.toUpperCase().padEnd(5)} ${scope} ${msg}` +
     (extra !== undefined ? ` ${safe(extra)}` : "");
-  const sink = level === "error" || level === "warn" ? console.error : console.log;
-  sink(line);
+  if (!isSilent()) {
+    const sink = level === "error" || level === "warn" ? console.error : console.log;
+    sink(line);
+  }
   try {
     appendFileSync("data/bot.log", line + "\n");
   } catch {
