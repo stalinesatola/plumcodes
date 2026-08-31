@@ -338,8 +338,8 @@ function humanDur(ms: number): string {
 }
 
 function render(m: Model, cfg: any): void {
-  const W = Math.max(80, process.stdout.columns || 100);
-  const H = Math.max(24, process.stdout.rows || 30);
+  const W = Math.max(80, process.stdout.columns || Number(process.env.COLUMNS) || 100);
+  const H = Math.max(24, process.stdout.rows || Number(process.env.LINES) || 30);
   const buf: string[] = [`${ESC}H`]; // home (não limpa: menos flicker)
 
   // header
@@ -619,6 +619,7 @@ function render(m: Model, cfg: any): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const once = args.includes("--once");
+  const demo = args.includes("--demo"); // dados sintéticos, sem ligação — para docs/SVG
   const symIdx = args.indexOf("--symbols");
   const symbols =
     symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : ["frxXAUUSD"];
@@ -644,6 +645,90 @@ async function main(): Promise<void> {
     confirmReal: false,
     err: "",
   };
+
+  if (demo) {
+    const now = Date.now();
+    m.connected = true;
+    m.startedAt = now - 34 * 60000;
+    m.accountId = "DOT94371782";
+    m.balance = 9948.6;
+    m.startBalance = 9945.88;
+    let px = 4431;
+    const ser: number[] = [];
+    for (let i = 0; i < 600; i++) {
+      px += Math.sin(i / 23) * 0.9 + (Math.random() - 0.5) * 1.4 + (i > 400 ? 0.04 : -0.02);
+      ser.push(Number(px.toFixed(2)));
+    }
+    m.prices.set((symbols[0] ?? "frxXAUUSD"), ser);
+    m.lastTick.set((symbols[0] ?? "frxXAUUSD"), ser[ser.length - 1]!);
+    const midnight = Math.floor(now / 86400000) * 86400000;
+    m.market = {
+      open: true,
+      live: true,
+      note: "Fridays: Closes early (at 20:55)",
+      intervals: [
+        { open: midnight / 1000, close: (midnight + 21 * 3600000) / 1000 },
+        { open: (midnight + 22 * 3600000) / 1000, close: (midnight + 86399000) / 1000 },
+      ],
+    };
+    m.session = {
+      openBalance: 9945.88,
+      openTs: now - 9_600_000,
+      lastBalance: 9948.6,
+      lastTs: now - 40_000,
+      prevOpenBalance: 9951.2,
+      prevCloseBalance: 9945.88,
+      prevOpenTs: now - 96_000_000,
+      prevCloseTs: now - 86_000_000,
+    };
+    m.trades = {
+      open: [
+        {
+          botId: "xau-ny-momo",
+          tag: "ny_up",
+          dir: "up",
+          entry: ser[ser.length - 40]!,
+          stopDist: 5.6,
+          slPrice: ser[ser.length - 40]! - 5.6,
+          tpPrice: ser[ser.length - 40]! + 8.4,
+          ts: now - 640_000,
+        },
+      ],
+      closed: [
+        { ts: now - 26_400_000, botId: "xau-meanrev-london", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
+        { ts: now - 24_900_000, botId: "xau-meanrev-london", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 23_100_000, botId: "xau-meanrev-london", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
+        { ts: now - 8_600_000, botId: "xau-ny-momo", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 4_200_000, botId: "xau-ny-momo", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
+      ],
+    };
+    m.botStatus = {
+      ts: now - 20_000,
+      risk: { pnlToday: 1.85, pnlTodayPct: 0.019, lossStreak: 0, halted: null },
+      bots: [
+        { id: "xau-meanrev-london", stopped: false, open: false },
+        { id: "xau-ny-momo", stopped: false, open: true },
+      ],
+    };
+    m.learn = {
+      bots: {
+        "xau-ny-momo": {
+          tuning: 0.1,
+          onProbation: false,
+          arms: { ny_up: { recent: [1, 0, 1, 1], trades: 4 }, ny_dn: { recent: [0, 1], trades: 2 } },
+        },
+      },
+    };
+    m.logLines = [
+      "[2026-08-31T17:12:15Z] INFO  main status ...",
+      "[2026-08-31T18:41:03Z] INFO  bot:xau-ny-momo ENTRAR ny_up stake=2 x100 SL=1.9 TP=2.85",
+      "[2026-08-31T18:41:04Z] INFO  deriv socket aberto (autenticado via OTP)",
+      "[2026-08-31T18:52:30Z] INFO  main reconectado e re-subscrito",
+    ];
+    render(m, cfg);
+    out("\n");
+    process.exit(0);
+  }
 
   if (!process.env.DERIV_TOKEN) {
     m.err = "DERIV_TOKEN ausente";

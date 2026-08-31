@@ -4,29 +4,40 @@ A headless, production-shaped framework for **building, backtesting and running
 algorithmic trading strategies on [Deriv](https://deriv.com)** — plus a disciplined
 research loop for deciding whether a strategy is worth real money.
 
-Node.js / TypeScript, no browser automation. Connects to Deriv's current **Options
-API** (`api.derivws.com`) over WebSocket, with auto-reconnect, global risk management,
-an online-learning layer, and an offline backtester.
+Node.js · TypeScript · zero runtime dependencies (`ws` only) · Python 3 sidecar (stdlib
+only). Connects to Deriv's current **Options API** over WebSocket, with auto-reconnect,
+global risk management, an online-learning layer, an offline backtester, a btop-style
+terminal monitor, and Telegram alerts.
+
+![The terminal monitor](docs/dashboard.svg)
 
 > **Honest disclaimer.** This was built to find a profitable edge on Deriv's markets.
 > After six rigorous investigations (synthetic Volatility / Jump / Boom-Crash / Step
 > indices, last-digit contracts, and real spot Gold) **no strategy showed positive
-> expectancy net of cost.** See [`FINDINGS.md`](FINDINGS.md). The framework is kept as
-> a reference implementation and a demonstration of the research methodology — not as
-> a money-making bot. Do not trade real money with it.
+> expectancy net of cost.** See [`FINDINGS.md`](FINDINGS.md). It is kept as a reference
+> implementation and a demonstration of method — not as a money-making bot. The two
+> Gold strategies currently enabled run on a **demo account** for forward-testing.
+
+**Contents** ·
+[Why](#why-this-repo-is-interesting) ·
+[Architecture](#architecture) ·
+[Quick start](#quick-start) ·
+[Monitor](#monitor-toolsdashboardts) ·
+[Telegram](#telegram-alerts) ·
+[Findings](#what-was-tested--see-findingsmd)
 
 ---
 
 ## Why this repo is interesting
 
 Most public trading-bot repos advertise win rates and hide the math. This one does the
-opposite: it contains the tooling to **measure expectancy honestly** and a written
-record of every idea that was tested and rejected, with the numbers.
+opposite: it ships the tooling to **measure expectancy honestly** and a written record
+of every idea that was tested and rejected, with the numbers ([`FINDINGS.md`](FINDINGS.md)).
 
-If you're evaluating the author's engineering: the substance is in `src/` (a clean
-event-driven trading engine), `tools/` (a backtester + statistical analysis scripts),
-and `ml/` (a dependency-free online-learning sidecar in Python talking to Node over
-stdio).
+If you're evaluating the engineering: the substance is in `src/` (a clean event-driven
+trading engine), `tools/` (a cost-aware backtester + statistical analysis scripts + the
+monitor), and `ml/` (a dependency-free online-learning sidecar in Python talking to Node
+over a line-delimited JSON stdio protocol).
 
 ---
 
@@ -52,9 +63,14 @@ src/
                       aggregation + resampling, feature vector, logger
 ml/
   predictor.py        online logistic regression (SGD), stdlib only, weights persisted
+  util/telegram.ts    dependency-free Telegram Bot API notifier (fetch + 1/s queue)
+  util/session.ts     data/session.json — session open balance / previous close
+  util/journal.ts     data/trades.jsonl — per-trade open/close events
 tools/
+  dashboard.ts        btop-style monitor TUI (read-only; never trades)
   backtest.ts         offline backtester for candle strategies (real Deriv cost model)
   scan-symbols.ts     rank symbols by backtested expectancy
+  render-svg.ts       renders one dashboard frame to an SVG (docs/dashboard.svg)
   gold-*.ts           the Gold/USD investigation (download, characterize, 23-run suite)
   jump-analyze.ts     Jump Index jump-detection & post-jump behaviour analysis
   digit-analyze.ts    chi-square / autocorrelation / transition-matrix / EV table
@@ -77,7 +93,7 @@ Code](https://claude.com/claude-code).
 
 ---
 
-## Running it
+## Quick start
 
 Requires **Node ≥ 22.18** (runs `.ts` natively) and, optionally, **Python 3.8+** for
 the ML sidecar.
@@ -101,6 +117,8 @@ node --env-file=.env tools/dashboard.ts             # btop-style monitor TUI
 
 ### Monitor (`tools/dashboard.ts`)
 
+![Dashboard panels](docs/dashboard.svg)
+
 A full-screen terminal dashboard in the spirit of [btop](https://github.com/aristocratos/btop):
 rounded panels, gradient meters, braille price graphs. It **only observes** — never
 trades. Panels:
@@ -121,10 +139,13 @@ asks to confirm). `--symbols X` to change the instrument, `--once` to print one 
 Truecolor terminal recommended (Windows Terminal works).
 
 Open positions and history come from `data/trades.jsonl` (written by the bot);
-session balances from `data/session.json`.
+session balances from `data/session.json`. Regenerate the image with
+`node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` ships with `bots: []` — nothing trades until you add a strategy that
-survived the research loop. It never did, so the array is empty by design.
+`config.json` currently enables two Gold strategies (`gold_meanrev_london`,
+`gold_ny_momo`) on `frxXAUUSD`, demo account, 1 % risk per trade. Both were the
+least-bad variant in the backtest suite (still slightly negative net of cost) —
+they run to forward-test the method, not because they print money.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 

@@ -1,13 +1,16 @@
 {
-  "name": "plumcodes-deriv-multibot",
+  "name": "deriv-quant-research",
   "version": "1.0.0",
-  "description": "Orquestrador 24/7 de multiplos bots de trading na Deriv (API WebSocket oficial)",
+  "description": "Framework para construir, backtestar e correr estratégias algorítmicas na Deriv — com um loop de investigação honesto sobre expectancy.",
   "type": "module",
   "main": "src/index.ts",
+  "license": "MIT",
   "scripts": {
     "start": "node --env-file=.env src/index.ts",
     "dev": "node --env-file=.env --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "monitor": "node --env-file=.env tools/dashboard.ts",
+    "typecheck": "tsc --noEmit",
+    "docs:image": "node tools/render-svg.ts docs/dashboard.svg"
   },
   "dependencies": {
     "ws": "^8.18.0"
