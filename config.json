@@ -41,6 +41,18 @@
     "reconnect": { "pingIntervalSec": 20, "maxBackoffSec": 60 }
   },
 
+  "alerts": {
+    "//": "Telegram: preencha TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no .env. heartbeatMinutes: 0 = sem resumo periodico.",
+    "telegram": {
+      "enabled": true,
+      "onTradeOpen": true,
+      "onTradeClose": true,
+      "onBotStartStop": true,
+      "onRiskEvent": true,
+      "heartbeatMinutes": 240
+    }
+  },
+
   "bots": [
     {
       "//": "Reversao a media na sessao de Londres (07-12 UTC) — melhor expectancy bruta no scan (+0.043 R). Liquida ainda negativa; roda em demo p/ forward-test + aprendizado.",

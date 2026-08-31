@@ -21,6 +21,7 @@ import { Bot } from "./bot.ts";
 import { getStrategy } from "./strategies/index.ts";
 import { createLogger } from "./util/logger.ts";
 import { sessionOpen, sessionTick } from "./util/session.ts";
+import { initTelegram, tgLifecycle, tgRisk, tgRaw } from "./util/telegram.ts";
 
 const log = createLogger("main");
 
@@ -42,6 +43,9 @@ async function main() {
   const cfg = loadConfig();
   const enabled = cfg.bots.filter((b) => b.enabled);
   log.info(`${enabled.length} bot(s): ${enabled.map((b) => `${b.id}(${b.strategy})`).join(", ")}`);
+
+  const tgCfg = cfg.alerts?.telegram;
+  initTelegram({ enabled: tgCfg?.enabled ?? false, ...tgCfg });
 
   const client = new DerivClient({
     token,
@@ -71,6 +75,11 @@ async function main() {
   const balance = await client.subscribeBalance();
   risk.init(balance || acc.balance);
   sessionOpen(balance || acc.balance);
+  tgLifecycle(
+    `▶️ <b>Bot iniciado</b>\n` +
+      `conta ${acc.accountId} ${acc.isDemo ? "DEMO" : "REAL"} · saldo $${(balance || acc.balance).toFixed(2)}\n` +
+      `bots: ${enabled.map((b) => b.id).join(", ") || "(nenhum)"}`,
+  );
 
   for (const bc of enabled) {
     const bot = new Bot({ cfg: bc, client, risk, learner, ml, currency: cfg.account.currency });
@@ -105,9 +114,34 @@ async function main() {
   });
   client.on("open", () => log.info("reconectado e re-subscrito"));
 
+  let haltedNotified = false;
+  const hbMin = tgCfg?.heartbeatMinutes ?? 0;
+  let hbCounter = 0;
+
   const statusTimer = setInterval(() => {
     sessionTick(risk.balance);
-    log.info("status", { risk: risk.status, bots: bots.map((b) => b.status) });
+    const st = risk.status;
+    log.info("status", { risk: st, bots: bots.map((b) => b.status) });
+
+    if (risk.isHalted && !haltedNotified) {
+      haltedNotified = true;
+      tgRisk(
+        `🛑 <b>Risco global HALT</b>\n${st.halted}\nP/L dia: $${st.pnlToday.toFixed(2)} (${st.pnlTodayPct.toFixed(2)}%) · saldo $${st.balance.toFixed(2)}`,
+      );
+    }
+
+    if (hbMin > 0 && ++hbCounter % hbMin === 0) {
+      const lines = bots.map((b) => {
+        const s = b.status;
+        return `• ${s.id}: ${s.wins}W/${s.losses}L  ${s.stopped ? "PARADO" : s.open ? "em posição" : "ativo"}`;
+      });
+      tgRaw(
+        `📊 <b>Status</b> ${new Date().toISOString().slice(11, 16)} UTC\n` +
+          `saldo $${st.balance.toFixed(2)} · P/L dia $${st.pnlToday.toFixed(2)} (${st.pnlTodayPct.toFixed(2)}%)\n` +
+          lines.join("\n"),
+      );
+    }
+
     if (risk.isHalted && bots.every((b) => !b.isOpen)) {
       log.warn("risco global HALT e sem contratos abertos — encerrando");
       shutdown(0);
@@ -116,10 +150,11 @@ async function main() {
 
   function shutdown(code: number) {
     clearInterval(statusTimer);
+    tgLifecycle(`⏹️ <b>Bot parado</b> · saldo $${risk.balance.toFixed(2)} · P/L dia $${risk.pnlToday.toFixed(2)}`);
     learner.flush();
     ml.stop();
     client.disconnect();
-    setTimeout(() => process.exit(code), 500);
+    setTimeout(() => process.exit(code), 1200);
   }
 
   process.on("SIGINT", () => {

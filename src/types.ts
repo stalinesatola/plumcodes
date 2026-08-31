@@ -30,6 +30,16 @@ export interface AppConfig {
     dailyResetUtc: string;
     reconnect: { pingIntervalSec: number; maxBackoffSec: number };
   };
+  alerts?: {
+    telegram?: {
+      enabled: boolean;
+      onTradeOpen?: boolean;
+      onTradeClose?: boolean;
+      onBotStartStop?: boolean;
+      onRiskEvent?: boolean;
+      heartbeatMinutes?: number;
+    };
+  };
   bots: BotConfig[];
 }
 

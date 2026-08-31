@@ -9,6 +9,7 @@ import { lastDigit } from "./util/indicators.ts";
 import { CandleAggregator, type Candle } from "./util/candles.ts";
 import { createLogger } from "./util/logger.ts";
 import { journal } from "./util/journal.ts";
+import { tgTradeOpen, tgTradeClose, tgRisk } from "./util/telegram.ts";
 
 interface OpenMeta {
   tag: string;
@@ -271,6 +272,8 @@ export class Bot {
         const dir: "up" | "down" = intent.contractType === "MULTUP" ? "up" : "down";
         const sd = intent.stopDistance ?? 0;
         const rrv = intent.rr ?? 2;
+        const slPx = dir === "up" ? entryPx - sd : entryPx + sd;
+        const tpPx = dir === "up" ? entryPx + rrv * sd : entryPx - rrv * sd;
         journal({
           ev: "open",
           ts: Date.now(),
@@ -284,9 +287,15 @@ export class Bot {
           stake,
           multiplier: intent.multiplier ?? 0,
           stopDist: sd,
-          slPrice: dir === "up" ? entryPx - sd : entryPx + sd,
-          tpPrice: dir === "up" ? entryPx + rrv * sd : entryPx - rrv * sd,
+          slPrice: slPx,
+          tpPrice: tpPx,
         });
+        const px = (n: number) => n.toFixed(this.symbol.startsWith("frx") ? 2 : 4);
+        tgTradeOpen(
+          `🟢 <b>ABRIU</b> ${this.id}\n` +
+            `${dir === "up" ? "▲ LONG" : "▼ SHORT"} ${this.symbol} @ ${px(entryPx)}\n` +
+            `SL ${px(slPx)} · TP ${px(tpPx)} · stake $${stake} ×${intent.multiplier}`,
+        );
       }
       await this.client.trackContract(buy.contractId);
     } catch (e) {
@@ -338,6 +347,8 @@ export class Bot {
     this.learner.record(result);
     if (result.features.length) this.ml.observe(`${this.id}|${result.tag}`, result.features, isWin);
 
+    const rMult = meta?.slUsd ? profit / meta.slUsd : 0;
+    const balAfter = Number(poc.balance_after ?? this.risk.balance);
     journal({
       ev: "close",
       ts: Date.now(),
@@ -346,9 +357,14 @@ export class Bot {
       tag: result.tag,
       profit,
       isWin,
-      rMultiple: meta?.slUsd ? profit / meta.slUsd : 0,
-      balanceAfter: Number(poc.balance_after ?? this.risk.balance),
+      rMultiple: rMult,
+      balanceAfter: balAfter,
     });
+    tgTradeClose(
+      `${isWin ? "✅" : "❌"} <b>FECHOU</b> ${this.id} · ${isWin ? "WIN" : "LOSS"}\n` +
+        `${result.tag}  ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} USD  (${rMult >= 0 ? "+" : ""}${rMult.toFixed(2)}R)\n` +
+        `bot: ${this.wins}W/${this.losses}L  pnl $${this.realizedPnl.toFixed(2)} · saldo $${balAfter.toFixed(2)}`,
+    );
 
     this.log.info(
       `FECHADO ${isWin ? "WIN" : "LOSS"} ${result.tag} lucro=${profit.toFixed(2)} ` +
@@ -368,6 +384,7 @@ export class Bot {
     this.stopped = true;
     this.stopReason = reason;
     this.log.warn(`PARADO: ${reason}`);
+    tgRisk(`⚠️ <b>${this.id} PARADO</b>\n${reason}\nresultado do dia: ${this.dayWins}W/${this.dayLosses}L`);
   }
 
   get isOpen() {

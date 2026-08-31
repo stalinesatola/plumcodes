@@ -128,6 +128,19 @@ survived the research loop. It never did, so the array is empty by design.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 
+### Telegram alerts
+
+Optional push alerts for **trade open / trade close / bot start-stop / risk HALT**,
+plus a periodic status digest. In `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=...    # from @BotFather
+TELEGRAM_CHAT_ID=...      # your chat id (@userinfobot, or /getUpdates)
+```
+
+Toggle each event and the digest interval in `config.json → alerts.telegram`. Test
+with `node --env-file=.env tools/telegram-test.ts`. No credentials → silent no-op.
+
 ---
 
 ## What was tested — see [`FINDINGS.md`](FINDINGS.md)
