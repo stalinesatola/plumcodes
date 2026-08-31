@@ -60,7 +60,8 @@
         "tradeStart": 7,
         "tradeEnd": 12,
         "multiplier": 100,
-        "rr": 1.0
+        "//rr": "1.0 -> 1.5 (revisao 2026-08-31: backtest -0.13R -> -0.10R)",
+        "rr": 1.5
       },
       "riskPerTradePct": 1,
       "daily": { "maxWins": 5, "maxLosses": 3, "maxTrades": 10 },
@@ -80,7 +81,8 @@
         "//": "13-20 UTC: abertura de NY + tarde (a caracterizacao achou acf1 M5 mais alto na tarde de NY).",
         "tradeStart": 13,
         "tradeEnd": 20,
-        "forceMult": 1.3,
+        "//forceMult": "1.3 -> 1.6 (revisao 2026-08-31: backtest -0.11R/220tr -> -0.05R/126tr; candles mais fortes filtram melhor)",
+        "forceMult": 1.6,
         "stopAtrMult": 1.0,
         "multiplier": 100,
         "rr": 1.5

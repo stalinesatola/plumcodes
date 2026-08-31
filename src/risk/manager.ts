@@ -17,6 +17,9 @@ export class RiskManager {
 
   private dayStartBalance = 0;
   private currentBalance = 0;
+  // PnL do dia = soma dos resultados DOS NOSSOS bots (nao delta de saldo), para o
+  // stop/take diario nao ser corrompido por trades externos na mesma conta demo.
+  private realizedToday = 0;
   private dayKey = "";
   private lossStreak = 0;
   private pausedUntil = 0;
@@ -48,6 +51,7 @@ export class RiskManager {
       log.info(`novo dia ${key}: reset de metricas (saldo base ${this.currentBalance})`);
       this.dayKey = key;
       this.dayStartBalance = this.currentBalance;
+      this.realizedToday = 0;
       this.lossStreak = 0;
       if (this.halted && this.halted.startsWith("daily")) this.halted = null;
     }
@@ -62,7 +66,7 @@ export class RiskManager {
   }
 
   get pnlToday(): number {
-    return this.currentBalance - this.dayStartBalance;
+    return this.realizedToday;
   }
 
   get pnlTodayPct(): number {
@@ -116,6 +120,7 @@ export class RiskManager {
   }
 
   recordResult(r: ContractResult) {
+    this.realizedToday += r.profit;
     if (r.isWin) {
       this.lossStreak = 0;
     } else {
@@ -138,7 +143,7 @@ export class RiskManager {
     return {
       balance: this.currentBalance,
       dayStartBalance: this.dayStartBalance,
-      pnlToday: this.pnlToday,
+      pnlToday: this.pnlToday, // realizado pelos nossos bots (nao inclui trades externos)
       pnlTodayPct: this.pnlTodayPct,
       lossStreak: this.lossStreak,
       openContracts: this.openContracts,
