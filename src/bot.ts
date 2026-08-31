@@ -8,6 +8,7 @@ import { buildFeatures } from "./util/features.ts";
 import { lastDigit } from "./util/indicators.ts";
 import { CandleAggregator, type Candle } from "./util/candles.ts";
 import { createLogger } from "./util/logger.ts";
+import { journal } from "./util/journal.ts";
 
 interface OpenMeta {
   tag: string;
@@ -16,6 +17,7 @@ interface OpenMeta {
   stake: number;
   isMultiplier: boolean;
   openedAtMs: number;
+  slUsd: number;
 }
 
 export class Bot {
@@ -256,6 +258,7 @@ export class Bot {
         stake,
         isMultiplier,
         openedAtMs: Date.now(),
+        slUsd: slUsd || stake,
       };
       this.dayTrades++;
       this.log.info(
@@ -263,6 +266,28 @@ export class Bot {
           (isMultiplier ? ` x${intent.multiplier} SL=${limitOrder?.stop_loss} TP=${limitOrder?.take_profit}` : ` mult=${payoutMult.toFixed(2)}`) +
           ` id=${buy.contractId} ${gate.explore ? "[explore]" : `[pEst ${gate.pEst.toFixed(2)}]`}`,
       );
+      if (isMultiplier) {
+        const entryPx = this.prices[this.prices.length - 1] ?? Number(buy.buyPrice) ?? 0;
+        const dir: "up" | "down" = intent.contractType === "MULTUP" ? "up" : "down";
+        const sd = intent.stopDistance ?? 0;
+        const rrv = intent.rr ?? 2;
+        journal({
+          ev: "open",
+          ts: Date.now(),
+          botId: this.id,
+          strategy: this.strat.name,
+          symbol: this.symbol,
+          tag: intent.tag,
+          contractId: buy.contractId,
+          dir,
+          entry: entryPx,
+          stake,
+          multiplier: intent.multiplier ?? 0,
+          stopDist: sd,
+          slPrice: dir === "up" ? entryPx - sd : entryPx + sd,
+          tpPrice: dir === "up" ? entryPx + rrv * sd : entryPx - rrv * sd,
+        });
+      }
       await this.client.trackContract(buy.contractId);
     } catch (e) {
       this.risk.notifyClosed();
@@ -312,6 +337,18 @@ export class Bot {
     this.risk.recordResult(result);
     this.learner.record(result);
     if (result.features.length) this.ml.observe(`${this.id}|${result.tag}`, result.features, isWin);
+
+    journal({
+      ev: "close",
+      ts: Date.now(),
+      botId: this.id,
+      contractId: Number(poc.contract_id),
+      tag: result.tag,
+      profit,
+      isWin,
+      rMultiple: meta?.slUsd ? profit / meta.slUsd : 0,
+      balanceAfter: Number(poc.balance_after ?? this.risk.balance),
+    });
 
     this.log.info(
       `FECHADO ${isWin ? "WIN" : "LOSS"} ${result.tag} lucro=${profit.toFixed(2)} ` +

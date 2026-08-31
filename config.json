@@ -1,5 +1,5 @@
 {
-  "//": "RESET 2026-08-30 — foco em Gold/USD (frxXAUUSD). Bots desativados ate o quant-researcher achar estrategia com expectancy > 0.",
+  "//": "Foco: aprender e aprimorar Gold/USD (frxXAUUSD) em conta demo. 2 estrategias, so este par.",
 
   "account": {
     "mode": "demo",
@@ -17,13 +17,14 @@
   },
 
   "learning": {
+    "//": "Bandit Thompson + hill-climb + kill/probation. exploreTrades: 12 operacoes sem filtro por aposta p/ calibrar.",
     "enabled": true,
     "window": 40,
     "minSample": 25,
-    "exploreTrades": 10,
-    "killWinrate": 0.40,
+    "exploreTrades": 12,
+    "killWinrate": 0.35,
     "probationStake": 0.5,
-    "banditSafety": 1.02,
+    "banditSafety": 1.0,
     "tuneStep": 0.1,
     "persistPath": "data/learn-state.json"
   },
@@ -40,5 +41,55 @@
     "reconnect": { "pingIntervalSec": 20, "maxBackoffSec": 60 }
   },
 
-  "bots": []
+  "bots": [
+    {
+      "//": "Reversao a media na sessao de Londres (07-12 UTC) — melhor expectancy bruta no scan (+0.043 R). Liquida ainda negativa; roda em demo p/ forward-test + aprendizado.",
+      "id": "xau-meanrev-london",
+      "enabled": true,
+      "strategy": "gold_meanrev_london",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "params": {
+        "bbPeriod": 20,
+        "bbK": 2.2,
+        "rsiPeriod": 14,
+        "rsiOb": 72,
+        "rsiOs": 28,
+        "stopAtrMult": 1.0,
+        "tradeStart": 7,
+        "tradeEnd": 12,
+        "multiplier": 100,
+        "rr": 1.0
+      },
+      "riskPerTradePct": 1,
+      "daily": { "maxWins": 5, "maxLosses": 3, "maxTrades": 10 },
+      "maxHoldMinutes": 45,
+      "botStopLossUsd": 20,
+      "botTakeProfitUsd": 30
+    },
+    {
+      "//": "Momentum pos-abertura de NY (13-15 UTC). Melhor expectancy bruta absoluta no scan (+0.057 R).",
+      "id": "xau-ny-momo",
+      "enabled": true,
+      "strategy": "gold_ny_momo",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "params": {
+        "//": "13-20 UTC: abertura de NY + tarde (a caracterizacao achou acf1 M5 mais alto na tarde de NY).",
+        "tradeStart": 13,
+        "tradeEnd": 20,
+        "forceMult": 1.3,
+        "stopAtrMult": 1.0,
+        "multiplier": 100,
+        "rr": 1.5
+      },
+      "riskPerTradePct": 1,
+      "daily": { "maxWins": 5, "maxLosses": 3, "maxTrades": 10 },
+      "maxHoldMinutes": 30,
+      "botStopLossUsd": 20,
+      "botTakeProfitUsd": 30
+    }
+  ]
 }

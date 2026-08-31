@@ -18,10 +18,8 @@ import { getStrategy } from "../src/strategies/index.ts";
 // ------------------------------------------------------------------ ANSI / tema
 const ESC = "\x1b[";
 const rgb = (r: number, g: number, b: number) => `${ESC}38;2;${r};${g};${b}m`;
-const bg = (r: number, g: number, b: number) => `${ESC}48;2;${r};${g};${b}m`;
 const RESET = `${ESC}0m`;
 const BOLD = `${ESC}1m`;
-const DIM = `${ESC}2m`;
 
 const T = {
   border: rgb(64, 74, 92),
@@ -174,6 +172,7 @@ interface Model {
   lastTick: Map<string, number>;
   logLines: string[];
   learn: any;
+  trades: { open: OpenPos[]; closed: ClosedTrade[] };
   err: string;
 }
 
@@ -199,6 +198,76 @@ function loadRiskCfg(): any {
   } catch {
     return { risk: {}, bots: [] };
   }
+}
+
+interface OpenPos {
+  botId: string;
+  tag: string;
+  dir: "up" | "down";
+  entry: number;
+  stopDist: number;
+  slPrice: number;
+  tpPrice: number;
+  ts: number;
+}
+interface ClosedTrade {
+  ts: number;
+  botId: string;
+  tag: string;
+  profit: number;
+  isWin: boolean;
+  r: number;
+  dir?: "up" | "down";
+  entry?: number;
+}
+function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
+  const open: OpenPos[] = [];
+  const closed: ClosedTrade[] = [];
+  try {
+    if (!existsSync("data/trades.jsonl")) return { open, closed };
+    const lines = readFileSync("data/trades.jsonl", "utf8").trim().split("\n").slice(-800);
+    const opens = new Map<number, any>();
+    const closedIds = new Set<number>();
+    for (const ln of lines) {
+      let e: any;
+      try {
+        e = JSON.parse(ln);
+      } catch {
+        continue;
+      }
+      if (e.ev === "open") opens.set(e.contractId, e);
+      else if (e.ev === "close") {
+        closedIds.add(e.contractId);
+        const o = opens.get(e.contractId);
+        closed.push({
+          ts: e.ts,
+          botId: e.botId,
+          tag: e.tag,
+          profit: e.profit,
+          isWin: e.isWin,
+          r: e.rMultiple ?? 0,
+          dir: o?.dir,
+          entry: o?.entry,
+        });
+      }
+    }
+    for (const [id, o] of opens) {
+      if (closedIds.has(id)) continue;
+      open.push({
+        botId: o.botId,
+        tag: o.tag,
+        dir: o.dir,
+        entry: o.entry,
+        stopDist: o.stopDist,
+        slPrice: o.slPrice,
+        tpPrice: o.tpPrice,
+        ts: o.ts,
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+  return { open, closed };
 }
 
 // ------------------------------------------------------------------ render
@@ -259,75 +328,154 @@ function render(m: Model, cfg: any): void {
     put(risk, 5, 0, `${T.dim}active bots${RESET}   ${nBots === 0 ? T.yellow + "0 — see FINDINGS.md" : T.green + nBots}${RESET}`),
   );
 
-  // ---- STRATEGIES (topo-direita) ----
+  // ---- BOTS (topo-direita) ----
   const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: 8 };
-  buf.push(...box(strat, " strategies ", T.blue));
-  const names = ["gold_session_breakout", "gold_trend_m15", "gold_meanrev_london", "gold_ny_momo"];
+  buf.push(...box(strat, " bots ", T.blue));
+  const bots: any[] = cfg.bots ?? [];
   let sr = 0;
-  for (const nm of names) {
-    let ok = true;
-    try {
-      getStrategy(nm);
-    } catch {
-      ok = false;
-    }
-    if (!ok) continue;
-    buf.push(put(strat, sr++, 0, `${T.dim}▸${RESET} ${T.text}${nm}${RESET} ${T.dim}candle·MULT${RESET}`));
+  for (const b of bots) {
+    if (sr >= strat.h - 2) break;
+    const hasOpen = m.trades.open.some((o) => o.botId === b.id);
+    const dot = !b.enabled ? T.dim + "○" : hasOpen ? T.yellow + "●" : T.green + "●";
+    const bt = m.trades.closed.filter((c) => c.botId === b.id);
+    const w = bt.filter((c) => c.isWin).length;
+    const rr = bt.reduce((s, c) => s + c.r, 0);
+    const stat = bt.length
+      ? `${T.dim}${w}/${bt.length - w} ${rr >= 0 ? T.green : T.red}${rr >= 0 ? "+" : ""}${rr.toFixed(1)}R${RESET}`
+      : `${T.dim}—${RESET}`;
+    buf.push(put(strat, sr++, 0, `${dot}${RESET} ${T.text}${b.id}${RESET} ${T.dim}${b.symbol}${RESET}  ${stat}`));
   }
-  buf.push(put(strat, 5, 0, `${T.dim}registered, none enabled${RESET}`));
+  if (bots.length === 0) buf.push(put(strat, 0, 0, `${T.yellow}config.json → bots: []${RESET}`));
 
-  // ---- PRICE panels ----
+  const sym = symbols[0] ?? "frxXAUUSD";
+  const ser = m.prices.get(sym) ?? [];
+  const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
+  const dec = sym.startsWith("frx") ? 2 : 4;
+
+  // ---- PRICE (largo) ----
   const pTop = top + 8;
-  const pAvail = H - pTop - 10;
-  const pH = Math.max(7, Math.floor(pAvail / Math.max(1, symbols.length)));
-  symbols.forEach((sym, i) => {
-    const r: Rect = { x: 2, y: pTop + i * pH, w: W - 3, h: pH };
-    const ser = m.prices.get(sym)!;
-    const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
-    const first = ser.length ? ser[0]! : last;
-    const chg = last - first;
-    const chgPct = first ? (chg / first) * 100 : 0;
-    const cc = chg > 0 ? T.green : chg < 0 ? T.red : T.dim;
-    const hi = ser.length ? Math.max(...ser) : last;
-    const lo = ser.length ? Math.min(...ser) : last;
-    const titleStr = ` ${sym}  ${T.text}${last.toFixed(sym.startsWith("frx") ? 2 : 4)}${RESET}  ${cc}${chg >= 0 ? "▲" : "▼"} ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(3)}%${RESET} `;
-    buf.push(...box(r, titleStr, T.cyan));
-    const g = brailleGraph(ser, r.w - 4, r.h - 2);
-    g.forEach((ln, gi) => buf.push(put(r, gi, 0, ln)));
-    buf.push(put(r, 0, r.w - 22, `${T.dim}hi ${hi.toFixed(2)}${RESET}`));
-    buf.push(put(r, r.h - 3, r.w - 22, `${T.dim}lo ${lo.toFixed(2)}${RESET}`));
-    buf.push(put(r, r.h - 3, 0, `${T.dim}${ser.length} ticks${RESET}`));
+  const avail = H - pTop - 1;
+  const priceH = Math.max(9, Math.min(16, Math.floor(avail * 0.42)));
+  const pr: Rect = { x: 2, y: pTop, w: W - 3, h: priceH };
+  const first = ser.length ? ser[0]! : last;
+  const chg = last - first;
+  const chgPct = first ? (chg / first) * 100 : 0;
+  const cc = chg > 0 ? T.green : chg < 0 ? T.red : T.dim;
+  const hi = ser.length ? Math.max(...ser) : last;
+  const lo = ser.length ? Math.min(...ser) : last;
+  buf.push(
+    ...box(
+      pr,
+      ` ${sym}  ${T.text}${last.toFixed(dec)}${RESET}  ${cc}${chg >= 0 ? "▲" : "▼"} ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(3)}%${RESET} `,
+      T.cyan,
+    ),
+  );
+  brailleGraph(ser, pr.w - 4, pr.h - 2).forEach((ln, gi) => buf.push(put(pr, gi, 0, ln)));
+  buf.push(put(pr, 0, pr.w - 24, `${T.dim}hi ${hi.toFixed(dec)}${RESET}`));
+  buf.push(put(pr, pr.h - 3, pr.w - 24, `${T.dim}lo ${lo.toFixed(dec)}${RESET}`));
+  buf.push(put(pr, pr.h - 3, 0, `${T.dim}${ser.length} ticks${RESET}`));
+  // marcadores de posição aberta no gráfico
+  m.trades.open.slice(0, pr.h - 4).forEach((o, oi) => {
+    const arrow = o.dir === "up" ? T.green + "▲ LONG " : T.red + "▼ SHORT";
+    buf.push(put(pr, 1 + oi, pr.w - 24, `${arrow} @ ${o.entry.toFixed(dec)}${RESET}`));
   });
 
-  // ---- LEARNING + LOG (base) ----
-  const bY = pTop + symbols.length * pH;
-  const bH = Math.max(6, H - bY - 1);
-  const learnR: Rect = { x: 2, y: bY, w: Math.floor((W - 3) * 0.36), h: bH };
+  // ---- POSITIONS + HISTORY ----
+  const midY = pTop + priceH;
+  const midH = Math.min(9, Math.max(6, H - midY - 7));
+  const posR: Rect = { x: 2, y: midY, w: Math.floor((W - 3) * 0.52), h: midH };
+  buf.push(...box(posR, " active positions ", T.green));
+  if (m.trades.open.length === 0) {
+    buf.push(put(posR, 0, 0, `${T.dim}nenhuma posição aberta${RESET}`));
+    buf.push(put(posR, 1, 0, `${T.dim}(estratégias operam em janelas UTC — ver bots)${RESET}`));
+  } else {
+    buf.push(put(posR, 0, 0, `${T.dim}${pad("dir", 7)}${pad("entry", 11)}${pad("now / R", 13)}${pad("SL", 10)}${pad("TP", 10)}age${RESET}`));
+    m.trades.open.slice(0, posR.h - 3).forEach((o, oi) => {
+      const dcol = o.dir === "up" ? T.green : T.red;
+      const uR = o.stopDist > 0 ? ((last - o.entry) / o.stopDist) * (o.dir === "up" ? 1 : -1) : 0;
+      const rcol = uR >= 0 ? T.green : T.red;
+      const age = humanDur(Date.now() - o.ts).replace(/^0h /, "");
+      buf.push(
+        put(
+          posR,
+          oi + 1,
+          0,
+          `${dcol}${pad(o.dir === "up" ? "LONG" : "SHORT", 7)}${RESET}${T.text}${pad(o.entry.toFixed(dec), 11)}${RESET}` +
+            `${rcol}${pad(`${uR >= 0 ? "+" : ""}${uR.toFixed(2)}R`, 13)}${RESET}` +
+            `${T.dim}${pad(o.slPrice.toFixed(dec), 10)}${pad(o.tpPrice.toFixed(dec), 10)}${age}${RESET}`,
+        ),
+      );
+    });
+  }
+
+  const histR: Rect = { x: 2 + posR.w + 1, y: midY, w: W - 3 - posR.w - 1, h: midH };
+  buf.push(...box(histR, " history ", T.blue));
+  const cl = m.trades.closed;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayR = cl.filter((c) => new Date(c.ts).toISOString().slice(0, 10) === todayKey).reduce((s, c) => s + c.r, 0);
+  const totR = cl.reduce((s, c) => s + c.r, 0);
+  const wins = cl.filter((c) => c.isWin).length;
+  const wr = cl.length ? (wins / cl.length) * 100 : 0;
+  buf.push(
+    put(
+      histR,
+      0,
+      0,
+      `${T.dim}trades ${T.text}${cl.length}${T.dim}  win ${T.text}${wr.toFixed(0)}%${T.dim}  ` +
+        `today ${todayR >= 0 ? T.green : T.red}${todayR >= 0 ? "+" : ""}${todayR.toFixed(1)}R${T.dim}  ` +
+        `all ${totR >= 0 ? T.green : T.red}${totR >= 0 ? "+" : ""}${totR.toFixed(1)}R${RESET}`,
+    ),
+  );
+  let cumR = totR;
+  const rows = cl.slice(-(histR.h - 3)).reverse();
+  rows.forEach((c, ci) => {
+    const hhmm = new Date(c.ts).toISOString().slice(11, 16);
+    const mk = c.isWin ? T.green + "W" : T.red + "L";
+    const rc = c.r >= 0 ? T.green : T.red;
+    buf.push(
+      put(
+        histR,
+        ci + 1,
+        0,
+        `${T.dim}${hhmm}${RESET} ${mk}${RESET} ${T.text}${pad(c.tag, 10)}${RESET}` +
+          `${rc}${pad(`${c.r >= 0 ? "+" : ""}${c.r.toFixed(2)}R`, 9)}${RESET}${T.dim}Σ ${cumR.toFixed(1)}${RESET}`,
+      ),
+    );
+    cumR -= c.r;
+  });
+  if (cl.length === 0) buf.push(put(histR, 1, 0, `${T.dim}sem operações fechadas ainda${RESET}`));
+
+  // ---- LEARNING + LOG ----
+  const bY = midY + midH;
+  const bH = Math.max(5, H - bY - 1);
+  const learnR: Rect = { x: 2, y: bY, w: Math.floor((W - 3) * 0.4), h: bH };
   buf.push(...box(learnR, " learning ", T.mag));
   if (m.learn && m.learn.bots && Object.keys(m.learn.bots).length) {
     let lr = 0;
     for (const [bid, b] of Object.entries<any>(m.learn.bots)) {
-      if (lr >= learnR.h - 3) break;
-      buf.push(put(learnR, lr++, 0, `${T.text}${bid}${RESET} ${T.dim}tuning ${(b.tuning ?? 0).toFixed(2)}${b.onProbation ? T.yellow + " probation" : ""}${RESET}`));
+      if (lr >= learnR.h - 2) break;
+      buf.push(
+        put(learnR, lr++, 0, `${T.text}${bid}${RESET} ${T.dim}tuning ${(b.tuning ?? 0).toFixed(2)}${b.onProbation ? T.yellow + " ·probation" : ""}${RESET}`),
+      );
       for (const [tag, a] of Object.entries<any>(b.arms ?? {})) {
-        if (lr >= learnR.h - 3) break;
-        const wr = a.recent?.length ? a.recent.reduce((x: number, y: number) => x + y, 0) / a.recent.length : 0;
-        buf.push(put(learnR, lr++, 1, `${T.dim}${tag}${RESET} ${meter(wr, 14)} ${T.dim}${a.trades ?? 0}t${RESET}`));
+        if (lr >= learnR.h - 2) break;
+        const w = a.recent?.length ? a.recent.reduce((x: number, y: number) => x + y, 0) / a.recent.length : 0;
+        buf.push(put(learnR, lr++, 1, `${T.dim}${pad(tag, 9)}${RESET}${meter(w, 12)} ${T.dim}${a.trades ?? 0}t${RESET}`));
       }
     }
   } else {
-    buf.push(put(learnR, 0, 0, `${T.dim}no learn-state.json${RESET}`));
-    buf.push(put(learnR, 1, 0, `${T.dim}(bot not running, or no trades yet)${RESET}`));
+    buf.push(put(learnR, 0, 0, `${T.dim}sem data/learn-state.json ainda${RESET}`));
+    buf.push(put(learnR, 1, 0, `${T.dim}(o bot ainda não fechou trades)${RESET}`));
   }
 
   const logR: Rect = { x: 2 + learnR.w + 1, y: bY, w: W - 3 - learnR.w - 1, h: bH };
   buf.push(...box(logR, " log ", T.yellow));
-  const lines = m.logLines.length ? m.logLines : ["(data/bot.log empty — start the bot with pm2 to populate)"];
+  const lines = m.logLines.length ? m.logLines : ["(data/bot.log vazio — inicie o bot: pm2 start ecosystem.config.cjs)"];
   lines.slice(-(logR.h - 2)).forEach((ln, li) => {
     let c = T.dim;
-    if (/WIN|TARGET|connected/i.test(ln)) c = T.green;
-    else if (/LOSS|HALT|fatal|erro/i.test(ln)) c = T.red;
-    else if (/ENTRAR|WARN/i.test(ln)) c = T.yellow;
+    if (/WIN|TARGET|connected|autenticado/i.test(ln)) c = T.green;
+    else if (/LOSS|HALT|fatal|erro|PARADO/i.test(ln)) c = T.red;
+    else if (/ENTRAR|WARN|reconect/i.test(ln)) c = T.yellow;
     buf.push(put(logR, li, 0, c + ln.replace(/\x1b\[[0-9;]*m/g, "") + RESET));
   });
 
@@ -340,9 +488,7 @@ async function main(): Promise<void> {
   const once = args.includes("--once");
   const symIdx = args.indexOf("--symbols");
   const symbols =
-    symIdx >= 0 && args[symIdx + 1]
-      ? args[symIdx + 1]!.split(",")
-      : ["frxXAUUSD", "R_75", "R_100"];
+    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : ["frxXAUUSD"];
 
   const cfg = loadRiskCfg();
   const m: Model = {
@@ -357,6 +503,7 @@ async function main(): Promise<void> {
     lastTick: new Map(),
     logLines: loadLog(40),
     learn: loadLearn(),
+    trades: loadTrades(),
     err: "",
   };
 
@@ -437,6 +584,7 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, process.env.DERIV_TOKEN ? 9000 : 200));
     m.logLines = loadLog(40);
     m.learn = loadLearn();
+    m.trades = loadTrades();
     render(m, cfg);
     out("\n");
     client?.disconnect();
@@ -446,6 +594,7 @@ async function main(): Promise<void> {
   const timer = setInterval(() => {
     m.logLines = loadLog(40);
     m.learn = loadLearn();
+    m.trades = loadTrades();
     render(m, cfg);
   }, 1000);
   process.stdout.on("resize", () => {
