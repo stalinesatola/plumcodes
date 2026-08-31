@@ -216,6 +216,7 @@ export class Bot {
         contractType: intent.contractType,
         amount: stake,
         durationTicks: intent.durationTicks,
+        durationUnit: intent.durationUnit,
         currency: this.currency,
         barrier: intent.barrier,
         multiplier: intent.multiplier,
@@ -267,13 +268,14 @@ export class Bot {
           (isMultiplier ? ` x${intent.multiplier} SL=${limitOrder?.stop_loss} TP=${limitOrder?.take_profit}` : ` mult=${payoutMult.toFixed(2)}`) +
           ` id=${buy.contractId} ${gate.explore ? "[explore]" : `[pEst ${gate.pEst.toFixed(2)}]`}`,
       );
-      if (isMultiplier) {
+      {
         const entryPx = this.prices[this.prices.length - 1] ?? Number(buy.buyPrice) ?? 0;
-        const dir: "up" | "down" = intent.contractType === "MULTUP" ? "up" : "down";
+        const dir: "up" | "down" =
+          intent.contractType === "MULTUP" || intent.contractType === "CALL" ? "up" : "down";
         const sd = intent.stopDistance ?? 0;
         const rrv = intent.rr ?? 2;
-        const slPx = dir === "up" ? entryPx - sd : entryPx + sd;
-        const tpPx = dir === "up" ? entryPx + rrv * sd : entryPx - rrv * sd;
+        const slPx = isMultiplier ? (dir === "up" ? entryPx - sd : entryPx + sd) : 0;
+        const tpPx = isMultiplier ? (dir === "up" ? entryPx + rrv * sd : entryPx - rrv * sd) : 0;
         journal({
           ev: "open",
           ts: Date.now(),
@@ -290,11 +292,13 @@ export class Bot {
           slPrice: slPx,
           tpPrice: tpPx,
         });
-        const px = (n: number) => n.toFixed(this.symbol.startsWith("frx") ? 2 : 4);
+        const px = (n: number) => n.toFixed(this.symbol.startsWith("frx") ? 2 : 1);
         tgTradeOpen(
-          `🟢 <b>ABRIU</b> ${this.id}\n` +
-            `${dir === "up" ? "▲ LONG" : "▼ SHORT"} ${this.symbol} @ ${px(entryPx)}\n` +
-            `SL ${px(slPx)} · TP ${px(tpPx)} · stake $${stake} ×${intent.multiplier}`,
+          `🟢 <b>ABRIU</b> ${this.id} · ${this.symbol}\n` +
+            `${dir === "up" ? "▲ CALL/LONG" : "▼ PUT/SHORT"} @ ${px(entryPx)} · stake $${stake}\n` +
+            (isMultiplier
+              ? `SL ${px(slPx)} · TP ${px(tpPx)} · ×${intent.multiplier}`
+              : `${intent.durationTicks}${intent.durationUnit ?? "t"} · payout ${(payoutMult - 1) * 100 | 0}%`),
         );
       }
       await this.client.trackContract(buy.contractId);

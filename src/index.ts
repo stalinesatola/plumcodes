@@ -100,7 +100,29 @@ async function main() {
     } catch (e) {
       log.error(`seed ${symbol} falhou`, (e as Error).message);
     }
-    await client.subscribeTicks(symbol);
+    // Indices OTC nao servem stream de ticks fiavel (e fecham fora de horario) →
+    // poller de candles M1 a cada 20s. Forex/commodities usam o stream normal.
+    if (symbol.startsWith("OTC_")) {
+      const poll = async () => {
+        try {
+          const cs = await client.candlesOHLC(symbol, 2, 60);
+          const c = cs[cs.length - 1];
+          if (c) for (const b of group) b.onTick(c.close, Math.floor(Date.now() / 1000), 2);
+        } catch {
+          /* mercado fechado / indisponivel */
+        }
+      };
+      const t = setInterval(poll, 20_000);
+      t.unref?.();
+      void poll();
+    } else {
+      try {
+        await client.subscribeTicks(symbol);
+      } catch (e) {
+        log.error(`subscribeTicks ${symbol} falhou (retry em 10s)`, (e as Error).message);
+        setTimeout(() => client.subscribeTicks(symbol).catch(() => void 0), 10_000);
+      }
+    }
   }
 
   client.on("tick", ({ symbol, quote, epoch, pipSize }) => {

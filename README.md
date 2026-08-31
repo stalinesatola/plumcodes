@@ -142,10 +142,14 @@ Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with
 `node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` currently enables two Gold strategies (`gold_meanrev_london`,
-`gold_ny_momo`) on `frxXAUUSD`, demo account, 1 % risk per trade. Both were the
-least-bad variant in the backtest suite (still slightly negative net of cost) —
-they run to forward-test the method, not because they print money.
+`config.json` currently enables **five** strategies on a demo account:
+- **Gold / USD** (`frxXAUUSD`, Multipliers) — `gold_meanrev_london`, `gold_ny_momo`
+- **Tokyo** (`OTC_N225`), **Sydney** (`OTC_AS51`), **Frankfurt** (`OTC_GDAXI`) —
+  `idx_session_momo`, a 15-minute binary CALL/PUT momentum play in each index's home
+  session. The indices offer **no Multipliers** (only 15 m–1 h binary at ~+82 %
+  payout → ~55 % breakeven) and Deriv serves almost no historical M1 data for them,
+  so **they can't be backtested** — they run purely to forward-test. The `markets`
+  panel in the monitor ranks all four by realized expectancy.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 

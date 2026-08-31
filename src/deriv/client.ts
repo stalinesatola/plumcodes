@@ -417,6 +417,7 @@ export class DerivClient extends EventEmitter {
     contractType: string;
     amount: number;
     durationTicks: number;
+    durationUnit?: "t" | "s" | "m";
     currency: string;
     barrier?: string;
     multiplier?: number;
@@ -436,7 +437,7 @@ export class DerivClient extends EventEmitter {
       if (opts.limitOrder) payload.limit_order = opts.limitOrder;
     } else {
       payload.duration = opts.durationTicks;
-      payload.duration_unit = "t";
+      payload.duration_unit = opts.durationUnit ?? "t";
       if (opts.barrier !== undefined) payload.barrier = opts.barrier;
     }
     const res = await this.send(payload);

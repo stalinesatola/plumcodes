@@ -81,6 +81,9 @@ export interface TradeIntent {
   /** digito (0-9) para MATCH/DIFF/OVER/UNDER */
   barrier?: string;
   durationTicks: number;
+  /** unidade da duracao: "t" ticks (default), "s" segundos, "m" minutos.
+   *  Indices (OTC_*) so aceitam CALL/PUT com "m" (15-60). */
+  durationUnit?: "t" | "s" | "m";
   /** rotulo curto p/ logs e para a camada de aprendizado agrupar por tipo de aposta */
   tag: string;
   /** --- so para multiplicadores (MULTUP/MULTDOWN) --- */

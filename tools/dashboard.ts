@@ -21,6 +21,7 @@ process.env.LOG_SILENT = "1"; // silencia o logger do DerivClient (antes do impo
 import { readFileSync, existsSync } from "node:fs";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
+import { MARKETS, marketBySymbol } from "../src/util/markets.ts";
 
 // ------------------------------------------------------------------ ANSI / tema
 const ESC = "\x1b[";
@@ -186,6 +187,7 @@ interface Model {
   botStatus: { ts: number; bots: any[]; risk: any } | null;
   monitorMode: "demo" | "real";
   confirmReal: boolean;
+  priceIdx: number;
   err: string;
 }
 
@@ -269,6 +271,7 @@ interface OpenPos {
 interface ClosedTrade {
   ts: number;
   botId: string;
+  symbol?: string;
   tag: string;
   profit: number;
   isWin: boolean;
@@ -298,6 +301,7 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
         closed.push({
           ts: e.ts,
           botId: e.botId,
+          symbol: o?.symbol,
           tag: e.tag,
           profit: e.profit,
           isWin: e.isWin,
@@ -349,7 +353,7 @@ function render(m: Model, cfg: any): void {
   buf.push(at(1, 2) + pad(clip(head, W - 3), W - 3));
 
   const symbols = [...m.prices.keys()];
-  const sym0 = symbols[0] ?? "frxXAUUSD";
+  const sym0 = symbols.length ? symbols[m.priceIdx % symbols.length]! : "frxXAUUSD";
   const top = 3;
   const PANEL_H = 11;
   const colW = Math.floor((W - 3) / 3);
@@ -412,65 +416,57 @@ function render(m: Model, cfg: any): void {
     buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
   }
 
-  // ---- BOTS (estado / atividade) ----
+  // ---- MARKETS — comparação (★ mercado com melhor expectancy) ----
   const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: PANEL_H };
-  buf.push(...box(strat, " bots ", T.blue));
+  buf.push(...box(strat, " markets ", T.blue));
   const bots: any[] = cfg.bots ?? [];
-  const marketOpen = !mkt || (ms?.open ?? true);
+  const dow = new Date().getUTCDay();
+  const isWeekday = dow >= 1 && dow <= 5;
+
+  const mktRows = MARKETS.map((mk2) => {
+    const cl = m.trades.closed.filter((c) => c.symbol === mk2.symbol);
+    const n = cl.length;
+    const w = cl.filter((c) => c.isWin).length;
+    const rSum = cl.reduce((s, c) => s + c.r, 0);
+    const exp = n ? rSum / n : 0;
+    const sessionOpen = isWeekday && nowUtcH >= mk2.session[0] && nowUtcH < mk2.session[1];
+    const symBots = bots.filter((b) => b.symbol === mk2.symbol && b.enabled);
+    const anyOpen = m.trades.open.some((o) => symBots.some((b) => b.id === o.botId));
+    const anyStopped = symBots.some((b) => m.botStatus?.bots?.find((x: any) => x.id === b.id)?.stopped);
+    let state: string;
+    if (symBots.length === 0) state = `${T.dim}—`;
+    else if (anyStopped) state = `${T.red}PARADO`;
+    else if (anyOpen) state = `${T.yellow}EM POSIÇÃO`;
+    else if (!sessionOpen) state = `${T.dim}${isWeekday ? "fora da janela" : "fim de semana"}`;
+    else state = `${T.green}analisando`;
+    return { mk2, n, w, rSum, exp, sessionOpen, state };
+  });
+  const ranked = [...mktRows].sort((a, b) => b.exp - a.exp);
+  const leaderSym = ranked.find((r) => r.n >= 3)?.mk2.symbol;
+
   let sr = 0;
-  for (const b of bots) {
+  buf.push(put(strat, sr++, 0, `${T.dim}${pad("", 18)}${pad("sess", 6)}${pad("trades", 8)}${pad("acerto", 8)}R${RESET}`));
+  for (const r of ranked) {
     if (sr >= strat.h - 2) break;
-    const p = b.params ?? {};
-    const wStart = p.tradeStart ?? 0;
-    const wEnd = p.tradeEnd ?? 24;
-    const inWindow = nowUtcH >= wStart && nowUtcH < wEnd;
-    const st = m.botStatus?.bots?.find((x: any) => x.id === b.id);
-    const hasOpen = m.trades.open.some((o) => o.botId === b.id);
-    const lastClose = m.trades.closed.filter((c) => c.botId === b.id).slice(-1)[0];
-
-    let stateStr: string;
-    let dot: string;
-    if (!b.enabled) {
-      dot = T.dim + "○";
-      stateStr = `${T.dim}desativado${RESET}`;
-    } else if (st?.stopped) {
-      dot = T.red + "●";
-      stateStr = `${T.red}PARADO${RESET}`;
-    } else if (hasOpen) {
-      dot = T.yellow + "●";
-      stateStr = `${T.yellow}EM POSIÇÃO${RESET}`;
-    } else if (!marketOpen) {
-      dot = T.dim + "●";
-      stateStr = `${T.dim}mercado fechado${RESET}`;
-    } else if (!inWindow) {
-      const toOpen = ((wStart - nowUtcH + 24) % 24) * 3600_000;
-      dot = T.dim + "●";
-      stateStr = `${T.dim}fora da janela · abre ${fmtShort(toOpen)}${RESET}`;
-    } else {
-      dot = T.green + "●";
-      const winStartMs = (() => {
-        const d = new Date();
-        d.setUTCHours(Math.floor(wStart), (wStart % 1) * 60, 0, 0);
-        return d.getTime();
-      })();
-      const analysingSince = lastClose ? Math.max(lastClose.ts, winStartMs) : winStartMs;
-      const winEndMs = winStartMs + (wEnd - wStart) * 3600_000;
-      stateStr = `${T.green}ANALISANDO${RESET}${T.dim} ${fmtShort(Date.now() - analysingSince)} · janela −${fmtShort(winEndMs - Date.now())}${RESET}`;
-    }
-
-    const bt = m.trades.closed.filter((c) => c.botId === b.id);
-    const w = bt.filter((c) => c.isWin).length;
-    const rSum = bt.reduce((s, c) => s + c.r, 0);
-    const rec = bt.length ? `${T.dim}${w}/${bt.length - w} ${rSum >= 0 ? T.green : T.red}${rSum >= 0 ? "+" : ""}${rSum.toFixed(1)}R${RESET}` : `${T.dim}—${RESET}`;
-    buf.push(put(strat, sr++, 0, `${dot}${RESET} ${T.text}${b.id}${RESET} ${T.dim}${wStart}–${wEnd}h${RESET}  ${rec}`));
-    if (sr < strat.h - 2) buf.push(put(strat, sr++, 0, `  ${stateStr}`));
+    const star = r.mk2.symbol === leaderSym ? T.yellow + "★" : " ";
+    const dotc = r.sessionOpen ? T.green + "●" : T.dim + "○";
+    const wr = r.n ? `${((r.w / r.n) * 100).toFixed(0)}%` : "—";
+    const rc = r.rSum >= 0 ? T.green : T.red;
+    const nameShort = r.mk2.label.split(" · ")[0]!;
+    buf.push(
+      put(
+        strat,
+        sr++,
+        0,
+        `${star}${RESET} ${T.text}${pad(nameShort, 15)}${RESET}${dotc}${RESET}   ${T.dim}${pad(String(r.n) + "t", 7)}${RESET}${pad(wr, 8)}${rc}${r.rSum >= 0 ? "+" : ""}${r.rSum.toFixed(1)}${RESET}  ${r.state}${RESET}`,
+      ),
+    );
   }
-  if (bots.length === 0) buf.push(put(strat, 0, 0, `${T.yellow}config.json → bots: []${RESET}`));
 
   const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
   const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
-  const dec = sym.startsWith("frx") ? 2 : 4;
+  const dec = marketBySymbol(sym)?.dec ?? (sym.startsWith("frx") ? 2 : 4);
 
   // ---- PRICE (largo) ----
   const pTop = top + PANEL_H;
@@ -622,7 +618,7 @@ async function main(): Promise<void> {
   const demo = args.includes("--demo"); // dados sintéticos, sem ligação — para docs/SVG
   const symIdx = args.indexOf("--symbols");
   const symbols =
-    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : ["frxXAUUSD"];
+    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : MARKETS.map((x) => x.symbol);
 
   const cfg = loadRiskCfg();
   const m: Model = {
@@ -643,6 +639,7 @@ async function main(): Promise<void> {
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
     confirmReal: false,
+    priceIdx: 0,
     err: "",
   };
 
@@ -659,8 +656,9 @@ async function main(): Promise<void> {
       px += Math.sin(i / 23) * 0.9 + (Math.random() - 0.5) * 1.4 + (i > 400 ? 0.04 : -0.02);
       ser.push(Number(px.toFixed(2)));
     }
-    m.prices.set((symbols[0] ?? "frxXAUUSD"), ser);
-    m.lastTick.set((symbols[0] ?? "frxXAUUSD"), ser[ser.length - 1]!);
+    m.priceIdx = Math.max(0, symbols.indexOf("frxXAUUSD"));
+    m.prices.set("frxXAUUSD", ser);
+    m.lastTick.set("frxXAUUSD", ser[ser.length - 1]!);
     const midnight = Math.floor(now / 86400000) * 86400000;
     m.market = {
       open: true,
@@ -695,11 +693,20 @@ async function main(): Promise<void> {
         },
       ],
       closed: [
-        { ts: now - 26_400_000, botId: "xau-meanrev-london", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
-        { ts: now - 24_900_000, botId: "xau-meanrev-london", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 23_100_000, botId: "xau-meanrev-london", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
-        { ts: now - 8_600_000, botId: "xau-ny-momo", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 4_200_000, botId: "xau-ny-momo", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
+        { ts: now - 26_400_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
+        { ts: now - 24_900_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 23_100_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
+        { ts: now - 8_600_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 4_200_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
+        { ts: now - 70_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
+        { ts: now - 68_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
+        { ts: now - 66_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_dn", profit: -1.0, isWin: false, r: -1.0 },
+        { ts: now - 20_000_000, botId: "frankfurt-momo", symbol: "OTC_GDAXI", tag: "idx_up", profit: 0.81, isWin: true, r: 0.81 },
+        { ts: now - 71_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
+        { ts: now - 69_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_dn", profit: 0.81, isWin: true, r: 0.81 },
+        { ts: now - 67_000_000, botId: "tokyo-momo", symbol: "OTC_N225", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
+        { ts: now - 72_000_000, botId: "sydney-momo", symbol: "OTC_AS51", tag: "idx_up", profit: -1.0, isWin: false, r: -1.0 },
+        { ts: now - 70_500_000, botId: "sydney-momo", symbol: "OTC_AS51", tag: "idx_dn", profit: -1.0, isWin: false, r: -1.0 },
       ],
     };
     m.botStatus = {
@@ -754,7 +761,7 @@ async function main(): Promise<void> {
 
   let client: DerivClient | null = null;
   let mktTick = 0;
-  const sym0 = symbols[0] ?? "frxXAUUSD";
+  const curSym = () => symbols[m.priceIdx % symbols.length] ?? "frxXAUUSD";
 
   async function bringUp(mode: "demo" | "real"): Promise<void> {
     if (!process.env.DERIV_TOKEN) {
@@ -807,7 +814,7 @@ async function main(): Promise<void> {
         }
         await client.subscribeTicks(s).catch(() => void 0);
       }
-      m.market = await client.marketSchedule(sym0).catch(() => null);
+      m.market = await client.marketSchedule(curSym()).catch(() => null);
     } catch (e) {
       m.err = (e as Error).message.slice(0, 40);
     }
@@ -835,7 +842,7 @@ async function main(): Promise<void> {
   const timer = setInterval(async () => {
     refresh();
     if (++mktTick % 180 === 0 && client && m.connected) {
-      m.market = await client.marketSchedule(sym0).catch(() => m.market);
+      m.market = await client.marketSchedule(curSym()).catch(() => m.market);
     }
     render(m, cfg);
   }, 1000);
@@ -867,6 +874,11 @@ async function main(): Promise<void> {
         out(`${ESC}2J`);
         refresh();
         render(m, cfg);
+      } else if (key === "n" || key === "p") {
+        m.priceIdx = (m.priceIdx + (key === "n" ? 1 : symbols.length - 1)) % symbols.length;
+        out(`${ESC}2J`);
+        render(m, cfg);
+        if (client && m.connected) void client.marketSchedule(curSym()).then((x) => (m.market = x));
       } else if (key === "a") {
         if (m.monitorMode === "real") {
           void bringUp("demo").then(() => render(m, cfg));

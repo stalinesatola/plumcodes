@@ -250,8 +250,106 @@ const goldNyMomo: Strategy = {
   },
 };
 
+// ============================================================================
+// ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
+// Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
+// acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
+// ============================================================================
+
+/** idx_session_momo — momentum M5 na sessão do índice. Candle M5 de força na
+ *  direção da EMA rápida vs lenta → CALL/PUT 15 min. */
+const idxSessionMomo: Strategy = {
+  name: "idx_session_momo",
+  warmup: 0,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 6;
+    const emaFast = Math.round(p.emaFast ?? 8);
+    const emaSlow = Math.round(p.emaSlow ?? 21);
+    const forceMult = p.forceMult ?? 0.9; // corpo M5 >= forceMult * ATR(M5)
+    const durMin = Math.round(p.durationMin ?? 15);
+
+    const m1 = ctx.candles;
+    const m5 = rs(m1, 300).slice(0, -1);
+    if (m5.length < emaSlow + 20) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (h < hStart || h >= hEnd) return null;
+
+    const cl = m5.map((c) => c.close);
+    const f = ema(cl, emaFast);
+    const s = ema(cl, emaSlow);
+    const a = atr(m5, 14);
+    if (f == null || s == null || a == null || a <= 0) return null;
+    const last = m5[m5.length - 1]!;
+    const body = last.close - last.open;
+
+    const up = f > s && last.close > f && body > forceMult * a;
+    const dn = f < s && last.close < f && -body > forceMult * a;
+    if (up) return { contractType: "CALL", durationTicks: durMin, durationUnit: "m", tag: "idx_up" };
+    if (dn) return { contractType: "PUT", durationTicks: durMin, durationUnit: "m", tag: "idx_dn" };
+    return null;
+  },
+};
+
+/** idx_orb — rompimento do range de abertura. Marca high/low dos primeiros
+ *  `orbMinutes` da sessão; quando o M5 recém-fechado rompe (vindo de dentro) →
+ *  CALL/PUT 15 min na direção do rompimento. */
+const idxOrb: Strategy = {
+  name: "idx_orb",
+  warmup: 0,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 6;
+    const orbMin = Math.round(p.orbMinutes ?? 30);
+    const buffFrac = p.bufferFrac ?? 0.0004;
+    const durMin = Math.round(p.durationMin ?? 15);
+
+    const m1 = ctx.candles;
+    if (m1.length < orbMin + 40) return null;
+    const now = m1[m1.length - 1]!;
+    const h = hourUTC(now.epoch);
+    if (h < hStart || h >= hEnd) return null;
+
+    // início da sessão em epoch (hoje)
+    const d = new Date(now.epoch * 1000);
+    const sessOpen = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), Math.floor(hStart), 0, 0) / 1000);
+    const orbEnd = sessOpen + orbMin * 60;
+    // só age na 1ª hora após o ORB fechar
+    if (now.epoch < orbEnd || now.epoch > orbEnd + 3600) return null;
+
+    const orbBars = m1.filter((c) => c.epoch >= sessOpen && c.epoch < orbEnd);
+    if (orbBars.length < orbMin * 0.6) return null;
+    const hi = Math.max(...orbBars.map((c) => c.high));
+    const lo = Math.min(...orbBars.map((c) => c.low));
+    const m5 = rs(m1, 300).slice(0, -1);
+    if (m5.length < 3) return null;
+    const cur = m5[m5.length - 1]!;
+    const prev = m5[m5.length - 2]!;
+    const buf = now.close * buffFrac;
+
+    const brokeUp = cur.close > hi + buf && prev.close <= hi + buf;
+    const brokeDn = cur.close < lo - buf && prev.close >= lo - buf;
+    if (brokeUp) return { contractType: "CALL", durationTicks: durMin, durationUnit: "m", tag: "orb_up" };
+    if (brokeDn) return { contractType: "PUT", durationTicks: durMin, durationUnit: "m", tag: "orb_dn" };
+    return null;
+  },
+};
+
 const REGISTRY: Record<string, Strategy> = {};
-for (const s of [goldSessionBreakout, goldTrendM15, goldMeanRevLondon, goldNyMomo] as Strategy[]) {
+for (const s of [
+  goldSessionBreakout,
+  goldTrendM15,
+  goldMeanRevLondon,
+  goldNyMomo,
+  idxSessionMomo,
+  idxOrb,
+] as Strategy[]) {
   REGISTRY[s.name] = s;
 }
 

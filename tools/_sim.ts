@@ -104,10 +104,16 @@ export function runBacktest(
         r = res.r - costR; // desconta custo do resultado (perde -> -1-cost, ganha -> rr-cost)
       }
     } else {
+      // CALL/PUT (Rise/Fall). Candles são M1, portanto duração em "m" == nº de candles.
       const dur = Math.max(1, intent.durationTicks || 5);
-      const exit = candles[Math.min(candles.length - 1, i + dur)]!.close;
+      const exitIdx = Math.min(candles.length - 1, i + dur);
+      barsUsed = dur;
+      const exit = candles[exitIdx]!.close;
       const up = exit > entry;
-      r = (intent.contractType === "CALL" && up) || (intent.contractType === "PUT" && !up) ? 0.95 : -1;
+      const win = (intent.contractType === "CALL" && up) || (intent.contractType === "PUT" && !up);
+      // payout binário real (índices ~0.81, sintéticos ~0.95). Override: --param payout=0.81
+      const payout = params.payout ?? 0.95;
+      r = win ? payout : -1;
     }
     if (r === null) continue;
 
@@ -135,7 +141,7 @@ export function runBacktest(
     rSum,
     maxDd,
     worstStreak,
-    breakevenWr: 1 / (1 + rr),
+    breakevenWr: params.payout ? 1 / (1 + params.payout) : 1 / (1 + rr),
     longs,
     shorts,
   };
