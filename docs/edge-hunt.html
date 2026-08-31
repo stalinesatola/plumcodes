@@ -1,0 +1,543 @@
+<title>The Deriv Edge Hunt</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F5F6F8;
+    --surface: #FFFFFF;
+    --sunk: #ECEEF1;
+    --ink: #161C26;
+    --ink-soft: #47515F;
+    --ink-faint: #8B94A2;
+    --rule: #DCE0E6;
+    --accent: #A0680A;
+    --accent-soft: #F1E6D2;
+    --verdict: #96453F;
+    --verdict-soft: #F0E0DE;
+    --data: #2C587A;
+    --good: #3B6C51;
+    --shadow: 0 1px 2px rgba(22,28,38,.05), 0 12px 32px -12px rgba(22,28,38,.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0B0E14;
+      --surface: #131923;
+      --sunk: #0E131C;
+      --ink: #E5E8ED;
+      --ink-soft: #A2AAB8;
+      --ink-faint: #69717F;
+      --rule: #262E3B;
+      --accent: #E1AA3C;
+      --accent-soft: #382C15;
+      --verdict: #DC8B83;
+      --verdict-soft: #33211F;
+      --data: #82B2D2;
+      --good: #7EBA9C;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px -16px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0B0E14;
+    --surface: #131923;
+    --sunk: #0E131C;
+    --ink: #E5E8ED;
+    --ink-soft: #A2AAB8;
+    --ink-faint: #69717F;
+    --rule: #262E3B;
+    --accent: #E1AA3C;
+    --accent-soft: #382C15;
+    --verdict: #DC8B83;
+    --verdict-soft: #33211F;
+    --data: #82B2D2;
+    --good: #7EBA9C;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px -16px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px; }
+  .spine { max-width: 660px; }
+
+  a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .7rem; font-weight: 500;
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+
+  /* ---- top metadata bar ---- */
+  .filebar {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: saturate(1.4);
+  }
+  .filebar .wrap {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding-top: 12px; padding-bottom: 12px;
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .filebar b { color: var(--ink-soft); font-weight: 600; }
+  .filebar .dot { color: var(--accent); }
+  .themeToggle {
+    background: none; border: 1px solid var(--rule); color: var(--ink-soft);
+    font: inherit; letter-spacing: inherit; text-transform: inherit;
+    padding: 3px 10px; cursor: pointer; border-radius: 2px;
+  }
+  .themeToggle:hover { border-color: var(--accent); color: var(--accent); }
+  @media (max-width: 620px) { .filebar .meta-mid { display: none; } }
+
+  /* ---- hero ---- */
+  .hero { padding: clamp(56px, 12vw, 128px) 0 clamp(48px, 9vw, 96px); }
+  .hero .kicker { color: var(--accent); margin-bottom: 26px; }
+  .hero h1 {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 6.4vw, 4.4rem);
+    line-height: 1.08;
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+    max-width: 16ch;
+    margin-bottom: 30px;
+  }
+  .hero h1 em { font-style: italic; color: var(--accent); }
+  .hero .lede {
+    font-size: clamp(1.06rem, 1.6vw, 1.22rem);
+    color: var(--ink-soft);
+    max-width: 54ch;
+  }
+  .hero .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- stat strip ---- */
+  .stats {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: var(--surface); box-shadow: var(--shadow);
+    margin-top: clamp(40px, 7vw, 68px);
+    overflow: hidden;
+  }
+  .stats div { padding: 22px 20px; border-right: 1px solid var(--rule); }
+  .stats div:last-child { border-right: none; }
+  .stats .v {
+    font-family: "Newsreader", serif; font-weight: 500;
+    font-size: clamp(1.5rem, 3vw, 2.1rem); line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink); margin-bottom: 8px;
+  }
+  .stats .v.zero { color: var(--verdict); }
+  .stats .k { font-size: .82rem; color: var(--ink-faint); line-height: 1.35; }
+  @media (max-width: 760px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stats div:nth-child(2) { border-right: none; }
+    .stats div:nth-child(-n+3) { border-bottom: 1px solid var(--rule); }
+    .stats div:nth-child(5) { grid-column: 1 / -1; border-top: 1px solid var(--rule); }
+  }
+
+  /* ---- section scaffold ---- */
+  section { padding: clamp(52px, 9vw, 104px) 0; border-top: 1px solid var(--rule); }
+  h2 {
+    font-family: "Newsreader", serif; font-weight: 400;
+    font-size: clamp(1.7rem, 3.4vw, 2.4rem);
+    line-height: 1.16; letter-spacing: -0.01em; text-wrap: balance;
+    margin-bottom: 18px; max-width: 22ch;
+  }
+  .sec-intro { color: var(--ink-soft); max-width: 60ch; }
+  p + p { margin-top: 1.1em; }
+  .spine p { color: var(--ink-soft); }
+  .spine p strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- method loop ---- */
+  .loop { margin-top: 44px; display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .loop .step { background: var(--surface); padding: 20px 24px; display: grid; grid-template-columns: 44px 1fr; gap: 18px; align-items: baseline; }
+  .loop .step .n { font-family: "IBM Plex Mono", monospace; font-size: .9rem; color: var(--accent); font-weight: 600; }
+  .loop .step h3 { font-family: "IBM Plex Sans", sans-serif; font-size: 1rem; font-weight: 600; margin-bottom: 3px; }
+  .loop .step p { font-size: .92rem; color: var(--ink-soft); margin: 0; }
+
+  /* ---- investigations ---- */
+  .cases { margin-top: 48px; display: flex; flex-direction: column; gap: 28px; }
+  .case {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .case-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 18px;
+    padding: 22px 26px; border-bottom: 1px solid var(--rule);
+  }
+  .case-head .cn { font-family: "IBM Plex Mono", monospace; color: var(--accent); font-weight: 600; font-size: .9rem; }
+  .case-head h3 {
+    font-family: "Newsreader", serif; font-weight: 500; font-size: 1.4rem;
+    letter-spacing: -0.005em; flex: 1 1 auto; min-width: 200px;
+  }
+  .stamp {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--verdict); border: 1.5px solid var(--verdict);
+    padding: 4px 9px 3px; border-radius: 2px;
+    background: var(--verdict-soft);
+    white-space: nowrap;
+  }
+  .stamp.nuance { color: var(--good); border-color: var(--good); background: var(--surface); }
+  .case-body { padding: 24px 26px 26px; display: grid; gap: 20px; }
+  .case-body .hyp { color: var(--ink-soft); font-size: .96rem; max-width: 62ch; }
+  .case-body .hyp b { color: var(--ink); font-weight: 600; }
+
+  .tbl { overflow-x: auto; border: 1px solid var(--rule); border-radius: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  thead th {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-weight: 600;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint);
+    background: var(--sunk);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--data); }
+  td.neg { color: var(--verdict); }
+  td.pos { color: var(--good); }
+  .caption { font-size: .8rem; color: var(--ink-faint); font-style: italic; }
+
+  /* ---- conclusion ---- */
+  .verdict-block {
+    margin-top: 40px; border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 26px;
+  }
+  .verdict-block p {
+    font-family: "Newsreader", serif; font-size: clamp(1.15rem, 2vw, 1.42rem);
+    line-height: 1.5; color: var(--ink);
+  }
+  .verdict-block p + p { margin-top: .7em; }
+  .verdict-block em { font-style: italic; color: var(--accent); }
+
+  /* ---- repo / architecture ---- */
+  .arch { margin-top: 44px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .arch .mod { background: var(--surface); padding: 20px 22px; }
+  .arch .mod .p { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--accent); margin-bottom: 6px; }
+  .arch .mod p { font-size: .9rem; color: var(--ink-soft); margin: 0; }
+  @media (max-width: 640px) { .arch { grid-template-columns: 1fr; } }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+  .pill {
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem; letter-spacing: .04em;
+    border: 1px solid var(--rule); border-radius: 2px; padding: 5px 10px;
+    color: var(--ink-soft); background: var(--surface);
+  }
+
+  /* ---- footer ---- */
+  footer { border-top: 1px solid var(--rule); padding: 48px 0 64px; background: var(--surface); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 32px 48px; justify-content: space-between; align-items: flex-start; }
+  footer .disc { max-width: 46ch; font-size: .84rem; color: var(--ink-faint); }
+  footer h4 { font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); font-family: "IBM Plex Mono", monospace; font-weight: 500; margin-bottom: 12px; }
+  footer ul { list-style: none; display: grid; gap: 7px; font-size: .92rem; }
+
+  /* ---- reveal ---- */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+</style>
+
+<div class="filebar">
+  <div class="wrap">
+    <span><b>FILE</b> &nbsp;deriv-edge-hunt</span>
+    <span class="meta-mid"><span class="dot">///</span> six investigations <span class="dot">·</span> feb–aug 2026</span>
+    <button class="themeToggle" id="tt" type="button" aria-label="Toggle colour theme">theme</button>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="label kicker">Quantitative research · negative result</p>
+    <h1>We hunted for an <em>edge</em> in Deriv's markets. It isn't there.</h1>
+    <p class="lede">
+      A trading bot is only worth running if its strategy has positive expectancy. Over six
+      structured investigations &mdash; every synthetic index family, last-digit contracts, and
+      real spot Gold &mdash; <strong>not one strategy cleared zero once the real cost of the
+      contract was subtracted.</strong> This is the write-up, with the numbers.
+    </p>
+
+    <div class="stats" id="stats">
+      <div><div class="v" data-to="6">0</div><div class="k">markets &amp; contract families tested</div></div>
+      <div><div class="v num" data-to="200573" data-fmt="1">0</div><div class="k">gold M1 candles analysed</div></div>
+      <div><div class="v num" data-to="23">0</div><div class="k">cost-aware backtests</div></div>
+      <div><div class="v num" data-to="40">0</div><div class="k">digit-contract EV combinations</div></div>
+      <div><div class="v zero" data-to="0">0</div><div class="k">strategies with positive net expectancy</div></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="spine reveal">
+      <p class="label" style="color:var(--accent);margin-bottom:14px">The method</p>
+      <h2>Judge by expectancy, never by win rate.</h2>
+      <p>
+        The single discipline that runs through all six investigations: a 40&#8209;percent&#8209;win
+        strategy with a 1:2 payout <em>makes</em> money; a 90&#8209;percent&#8209;win strategy paying
+        +11&#8239;% <em>loses</em> it. High hit rate plus martingale is the classic account&#8209;killer,
+        and it is the shape most public &ldquo;95&#8239;% consistency&rdquo; bots take.
+      </p>
+    </div>
+
+    <div class="loop reveal">
+      <div class="step"><span class="n">01</span><div><h3>Hypothesis</h3><p>What structural feature of the market would create an edge?</p></div></div>
+      <div class="step"><span class="n">02</span><div><h3>Sanity check</h3><p>Does it survive the price generator &mdash; a cryptographic PRNG for synthetics, a near&#8209;random&#8209;walk feed for Gold?</p></div></div>
+      <div class="step"><span class="n">03</span><div><h3>Implement</h3><p>Code it as a strategy against a clean event&#8209;driven engine. No martingale, ever.</p></div></div>
+      <div class="step"><span class="n">04</span><div><h3>Backtest, net of cost</h3><p>15k+ candles, every parameter variation, the real Deriv multiplier commission modelled in R. Under ~150 trades is inconclusive.</p></div></div>
+      <div class="step"><span class="n">05</span><div><h3>Verdict</h3><p>Expectancy in R. Positive and robust &rarr; forward&#8209;test on a demo account. Otherwise: rejected, on the record.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="spine reveal">
+      <p class="label" style="color:var(--accent);margin-bottom:14px">The six investigations</p>
+      <h2>Every idea that was tested, and what killed it.</h2>
+      <p class="sec-intro">Each is reproducible from a script in the repo. Verdicts are marked as they landed.</p>
+    </div>
+
+    <div class="cases">
+
+      <article class="case reveal">
+        <div class="case-head">
+          <span class="cn">01</span>
+          <h3>Synthetic Volatility indices &mdash; M1 multiplier scalping</h3>
+          <span class="stamp">No edge</span>
+        </div>
+        <div class="case-body">
+          <p class="hyp"><b>Hypothesis.</b> M1 micro&#8209;trends on V75 / V10 can be scalped with a break&#8209;of&#8209;structure + EMA + Stochastic setup at 1:2 risk&#8209;reward.</p>
+          <div class="tbl"><table>
+            <thead><tr><th>symbol</th><th>4,000 candles</th><th>14,000 candles (~270 trades)</th></tr></thead>
+            <tbody>
+              <tr><td class="n">1HZ10V</td><td class="n pos">+0.42 R</td><td class="n neg">&minus;0.015 R</td></tr>
+              <tr><td class="n">JD100</td><td class="n pos">+0.30 R</td><td class="n pos">+0.056 R</td></tr>
+              <tr><td class="n">R_75</td><td class="n pos">+0.18 R</td><td class="n pos">+0.029 R</td></tr>
+            </tbody>
+          </table></div>
+          <p class="caption">Small samples looked promising. Extending them collapsed every symbol toward zero &mdash; the signature of a strategy with no edge on a random process.</p>
+        </div>
+      </article>
+
+      <article class="case reveal">
+        <div class="case-head">
+          <span class="cn">02</span>
+          <h3>Symbol scan &mdash; all 34 multiplier&#8209;capable synthetics</h3>
+          <span class="stamp">No edge</span>
+        </div>
+        <div class="case-body">
+          <p class="hyp"><b>Hypothesis.</b> If the strategy is marginal, some symbol &mdash; a different tick rate, volatility, or shape &mdash; carries it into profit.</p>
+          <div class="tbl"><table>
+            <thead><tr><th>group</th><th>large&#8209;sample expectancy</th><th>note</th></tr></thead>
+            <tbody>
+              <tr><td class="n">Volatility 10&ndash;100</td><td class="n">&asymp; 0</td><td>converges to zero everywhere</td></tr>
+              <tr><td class="n">Boom / Crash</td><td class="n neg">&minus;0.16 to &minus;0.39 R</td><td>structurally asymmetric</td></tr>
+              <tr><td class="n">Step Index</td><td class="n neg">&minus;0.02 to &minus;0.39 R</td><td>no trend to ride</td></tr>
+            </tbody>
+          </table></div>
+          <p class="caption">There is no &ldquo;best pair.&rdquo; Symbols differ in candle smoothness and volatility, not in edge.</p>
+        </div>
+      </article>
+
+      <article class="case reveal">
+        <div class="case-head">
+          <span class="cn">03</span>
+          <h3>Jump indices &mdash; the programmed jumps</h3>
+          <span class="stamp">No edge</span>
+        </div>
+        <div class="case-body">
+          <p class="hyp"><b>Hypothesis.</b> The jumps are large and &ldquo;structural&rdquo; &mdash; their timing or direction might be predictable, or the move right after one might be tradeable. 236 jumps analysed (jump = |log&#8209;return| &gt; 6&#963; local).</p>
+          <div class="tbl"><table>
+            <thead><tr><th>property</th><th>measured</th><th>implication</th></tr></thead>
+            <tbody>
+              <tr><td>inter&#8209;jump interval</td><td class="n">Poisson, gapCV &asymp; 1.0</td><td>memoryless &mdash; timing unpredictable</td></tr>
+              <tr><td>direction</td><td class="n">41&ndash;64&#8239;% up (n&asymp;40&ndash;65)</td><td>fair coin</td></tr>
+              <tr><td>post&#8209;jump drift, 1&ndash;15&#8239;min</td><td class="n">&asymp; 0, sign flips by symbol</td><td>nothing to trade</td></tr>
+            </tbody>
+          </table></div>
+          <p class="caption">Deriv's own spec confirms it: Poisson arrival, 50/50 direction, CSPRNG. A straddle is negative&#8209;EV once the two&#8209;leg commission is subtracted.</p>
+        </div>
+      </article>
+
+      <article class="case reveal">
+        <div class="case-head">
+          <span class="cn">04</span>
+          <h3>Last&#8209;digit contracts &mdash; 13 symbols, formal statistics</h3>
+          <span class="stamp">No edge</span>
+        </div>
+        <div class="case-body">
+          <p class="hyp"><b>Hypothesis.</b> The CSPRNG has a last&#8209;digit bias, or serial dependence, large enough to beat the payout margin. Tested on R_100 and R_75 &mdash; different pip sizes &mdash; at ~43,000 ticks each.</p>
+          <div class="tbl"><table>
+            <thead><tr><th>test</th><th>R_100</th><th>R_75</th><th>critical</th></tr></thead>
+            <tbody>
+              <tr><td>&#967;&sup2; goodness&#8209;of&#8209;fit (uniform, df&nbsp;9)</td><td class="n">5.83</td><td class="n">11.91</td><td class="n">16.9 @ 5&#8239;%</td></tr>
+              <tr><td>autocorrelation, lags 1&ndash;5</td><td class="n" colspan="2">all within &plusmn;1.96/&radic;n</td><td>&mdash;</td></tr>
+              <tr><td>10&times;10 transition&#8209;matrix &#967;&sup2;</td><td class="n">77.9</td><td class="n">66.9</td><td class="n">~113 @ 1&#8239;%</td></tr>
+            </tbody>
+          </table></div>
+          <p class="caption">With the <em>measured</em> frequencies and the <em>real</em> Deriv payouts, all 40 (symbol &times; contract &times; barrier) combinations have negative EV &mdash; best &minus;1.7&#8239;%, worst &minus;20&#8239;%. The house margin is 1.9&ndash;17&#8239;%; the real digit bias is ~0.3&#8239;% noise.</p>
+        </div>
+      </article>
+
+      <article class="case reveal">
+        <div class="case-head">
+          <span class="cn">05</span>
+          <h3>Gold / USD spot &mdash; the real&#8209;market test</h3>
+          <span class="stamp nuance">Gross edge &lt; cost</span>
+        </div>
+        <div class="case-body">
+          <p class="hyp"><b>Hypothesis.</b> A real asset with trends, ranges and session effects should give technical analysis a fighting chance. 200,573 M1 candles of <span class="mono">frxXAUUSD</span> (Feb&ndash;Aug 2026, ~145 trading days). Four strategies, 23 backtests.</p>
+          <div class="tbl"><table>
+            <thead><tr><th>strategy</th><th>trades</th><th>win&#8239;%</th><th>gross exp.</th><th>net exp.</th></tr></thead>
+            <tbody>
+              <tr><td class="n">meanrev&#8209;london</td><td class="n">163</td><td class="n">52.1</td><td class="n pos">+0.043 R</td><td class="n neg">&minus;0.134 R</td></tr>
+              <tr><td class="n">ny&#8209;momentum</td><td class="n">220</td><td class="n">42.3</td><td class="n pos">+0.057 R</td><td class="n neg">&minus;0.112 R</td></tr>
+              <tr><td class="n">trend&#8209;m15</td><td class="n">416</td><td class="n">40.6</td><td class="n neg">&minus;0.047 R</td><td class="n neg">&minus;0.098 R</td></tr>
+              <tr><td class="n">session&#8209;breakout</td><td class="n">508</td><td class="n">30.9</td><td class="n neg">&minus;0.073 R</td><td class="n neg">&minus;0.183 R</td></tr>
+            </tbody>
+          </table></div>
+          <p class="caption">Intraday Gold on Deriv is near&#8209;random&#8209;walk (return autocorrelation &asymp; 0 at M1/M5). Two strategies have a real but <em>tiny</em> gross edge &mdash; smaller than the multiplier commission, which becomes ~0.15&ndash;0.20 R on the short stops they need. Trend and breakout lose before cost.</p>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap spine reveal">
+    <p class="label" style="color:var(--accent);margin-bottom:14px">Why</p>
+    <h2>The limitation is the product, not the strategy.</h2>
+    <div class="verdict-block">
+      <p>Deriv's synthetic indices are a <em>cryptographically secure pseudo&#8209;random number generator</em>. No pattern exists to find &mdash; not in the prices, not in the digits, not in the jumps. This is provable, and it was proven, five different ways.</p>
+      <p>Deriv's real&#8209;asset intraday feed is near&#8209;random&#8209;walk on OHLC data, and the only contract fit for a stop&#8209;and&#8209;target strategy carries a commission that <em>eats</em> the sub&#8209;0.1&#8239;R gross edges that do exist.</p>
+      <p>A genuine edge would need a market with real order flow and volume, and data beyond OHLC. A different broker. A different order of magnitude of capital and infrastructure.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="spine reveal">
+      <p class="label" style="color:var(--accent);margin-bottom:14px">What the repo is worth</p>
+      <h2>A clean trading engine and a research loop that reaches an honest &ldquo;no.&rdquo;</h2>
+      <p class="sec-intro">
+        Most public trading&#8209;bot repos advertise win rates and hide the math. This one ships the
+        tooling to measure expectancy honestly, and a written record of every rejected idea. The
+        engineering stands on its own.
+      </p>
+    </div>
+
+    <div class="arch reveal">
+      <div class="mod"><div class="p">src/deriv/client.ts</div><p>Deriv Options API client &mdash; REST OTP handshake, WebSocket, <span class="mono">req_id</span> correlation, exponential&#8209;backoff reconnect with stream re&#8209;subscription.</p></div>
+      <div class="mod"><div class="p">src/risk/manager.ts</div><p>Account guardrails every order passes through: daily stop&#8209;loss / take&#8209;profit, hard floor, loss&#8209;streak cooldown, concurrency caps.</p></div>
+      <div class="mod"><div class="p">src/learn/learner.ts</div><p>Adaptive layer: Thompson&#8209;sampling bandit per bot &times; bet type, EV gate, kill&#8209;switch with probation, parameter hill&#8209;climb &mdash; state persisted.</p></div>
+      <div class="mod"><div class="p">ml/predictor.py</div><p>Online logistic regression (SGD), standard library only, talking to Node over a line&#8209;delimited JSON stdio protocol. Degrades gracefully if absent.</p></div>
+      <div class="mod"><div class="p">tools/backtest.ts</div><p>Offline backtester for candle strategies with the real Deriv multiplier cost modelled in R. Gross vs net comparison built in.</p></div>
+      <div class="mod"><div class="p">tools/*-analyze.ts</div><p>Statistical analysis scripts &mdash; chi&#8209;square, autocorrelation, variance ratio, transition matrices, jump detection, session characterisation.</p></div>
+    </div>
+
+    <div class="pills reveal">
+      <span class="pill">TypeScript</span>
+      <span class="pill">Node 22 &mdash; native .ts</span>
+      <span class="pill">WebSocket</span>
+      <span class="pill">Python / NumPy&#8209;free SGD</span>
+      <span class="pill">event&#8209;driven</span>
+      <span class="pill">zero&#8209;dependency runtime (ws only)</span>
+      <span class="pill">PM2</span>
+      <span class="pill">reproducible backtests</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="disc">
+      <h4>On the record</h4>
+      <p>
+        Built Feb&ndash;Aug 2026 as a genuine search for an edge, kept as a reference implementation
+        and a demonstration of method. MIT&#8209;licensed. For education &mdash; not financial advice,
+        and not to be run with real money.
+      </p>
+    </div>
+    <div class="links">
+      <h4>Repository</h4>
+      <ul>
+        <li><a href="#">README &mdash; architecture &amp; setup</a></li>
+        <li><a href="#">FINDINGS.md &mdash; the six investigations in full</a></li>
+        <li><a href="#">docs/ &mdash; archived synthetic&#8209;index strategies</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var KEY = "edgehunt-theme";
+    try { var s = localStorage.getItem(KEY); if (s) root.setAttribute("data-theme", s); } catch (e) {}
+    document.getElementById("tt").addEventListener("click", function () {
+      var cur = root.getAttribute("data-theme");
+      var isDark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      var next = isDark ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY, next); } catch (e) {}
+    });
+
+    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var reveals = document.querySelectorAll(".reveal");
+    if (reduce || !("IntersectionObserver" in window)) {
+      reveals.forEach(function (el) { el.classList.add("in"); });
+    } else {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); }
+        });
+      }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+      reveals.forEach(function (el) { io.observe(el); });
+    }
+
+    // hero stat count-up
+    function fmt(n, grp) { return grp ? n.toLocaleString("en-US") : String(n); }
+    var statsEl = document.getElementById("stats");
+    function run() {
+      statsEl.querySelectorAll(".v").forEach(function (el) {
+        var to = parseInt(el.getAttribute("data-to"), 10);
+        var grp = el.getAttribute("data-fmt") === "1";
+        if (reduce) { el.textContent = fmt(to, grp); return; }
+        var t0 = performance.now(), dur = 1100;
+        function tick(now) {
+          var k = Math.min(1, (now - t0) / dur);
+          var e = 1 - Math.pow(1 - k, 3);
+          el.textContent = fmt(Math.round(to * e), grp);
+          if (k < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      });
+    }
+    if ("IntersectionObserver" in window && !reduce) {
+      var so = new IntersectionObserver(function (es) {
+        es.forEach(function (en) { if (en.isIntersecting) { run(); so.disconnect(); } });
+      }, { threshold: 0.4 });
+      so.observe(statsEl);
+    } else { run(); }
+  })();
+</script>
