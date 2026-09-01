@@ -51,6 +51,9 @@ src/
                       getProposal / buyProposal / sellContract
   risk/manager.ts     account guardrails: daily stop-loss / take-profit, hard floor,
                       loss-streak cooldown, concurrency caps — every order passes through
+  util/reconcile.ts   startup: reconciles contracts left open by a restart or a
+                      dropped connection — re-tracks the still-open ones (a bot
+                      adopts each), settles the rest from the profit table
   learn/learner.ts    adaptive layer (TS): Thompson-sampling bandit per bot × bet type,
                       EV gate, kill-switch + probation, parameter hill-climb, persisted
   ml/bridge.ts        spawns the Python sidecar, line-delimited JSON protocol, graceful

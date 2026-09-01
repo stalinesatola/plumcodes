@@ -21,6 +21,8 @@ import { Bot } from "./bot.ts";
 import { getStrategy } from "./strategies/index.ts";
 import { createLogger } from "./util/logger.ts";
 import { sessionOpen, sessionTick } from "./util/session.ts";
+import { reconcileOpenTrades } from "./util/reconcile.ts";
+import { journal } from "./util/journal.ts";
 import { initTelegram, tgLifecycle, tgRisk, tgRaw } from "./util/telegram.ts";
 
 const log = createLogger("main");
@@ -89,6 +91,13 @@ async function main() {
     bySymbol.set(bc.symbol, arr);
   }
 
+  // reconcilia contratos que já estavam abertos (restart / queda de ligação) antes
+  // de qualquer estratégia poder abrir posição nova
+  const ownerless = await reconcileOpenTrades(client, bots).catch((e) => {
+    log.error("reconciliação falhou", (e as Error).message);
+    return new Set<number>();
+  });
+
   for (const [symbol, group] of bySymbol) {
     try {
       const { prices, pipSize } = await client.recentTicks(symbol, 600);
@@ -133,6 +142,23 @@ async function main() {
   client.on("balance", ({ balance }) => risk.updateBalance(balance));
   client.on("contract", (poc) => {
     for (const b of bots) b.onContractUpdate(poc);
+    // contrato aberto que nenhum bot adotou (ex.: estratégia removida): regista só o fecho
+    if (poc?.is_sold && ownerless.has(Number(poc.contract_id))) {
+      ownerless.delete(Number(poc.contract_id));
+      const profit = Number(poc.profit);
+      journal({
+        ev: "close",
+        ts: Date.now(),
+        botId: "(reconciliado)",
+        contractId: Number(poc.contract_id),
+        tag: "adopted",
+        profit,
+        isWin: profit >= 0,
+        rMultiple: 0,
+        balanceAfter: Number(poc.balance_after ?? risk.balance),
+      });
+      log.info(`contrato órfão ${poc.contract_id} fechou: ${profit.toFixed(2)}`);
+    }
   });
   client.on("open", () => log.info("reconectado e re-subscrito"));
 

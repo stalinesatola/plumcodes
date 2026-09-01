@@ -51,6 +51,7 @@ export class DerivClient extends EventEmitter {
 
   private account: AccountInfo | null = null;
   private tickSubs = new Set<string>();
+  private contractSubs = new Set<number>(); // contratos abertos que seguimos (re-subscritos na reconexao)
   private wantBalanceSub = false;
 
   constructor(opts: {
@@ -287,6 +288,13 @@ export class DerivClient extends EventEmitter {
         log.error(`re-sub ticks ${symbol} falhou`, (e as Error).message),
       );
     }
+    // re-segue os contratos abertos — sem isto, uma queda de ligação faz o
+    // evento de fecho nunca chegar e o trade fica órfão no diário.
+    for (const id of this.contractSubs) {
+      await this.send({ proposal_open_contract: 1, contract_id: id, subscribe: 1 }).catch((e) =>
+        log.error(`re-sub contrato ${id} falhou`, (e as Error).message),
+      );
+    }
   }
 
   private onMessage(text: string) {
@@ -319,7 +327,11 @@ export class DerivClient extends EventEmitter {
         if (msg.balance) this.emit("balance", { balance: Number(msg.balance.balance), currency: msg.balance.currency });
         break;
       case "proposal_open_contract":
-        if (msg.proposal_open_contract) this.emit("contract", msg.proposal_open_contract);
+        if (msg.proposal_open_contract) {
+          const poc = msg.proposal_open_contract;
+          if (poc.is_sold) this.contractSubs.delete(Number(poc.contract_id));
+          this.emit("contract", poc);
+        }
         break;
     }
   }
@@ -527,6 +539,42 @@ export class DerivClient extends EventEmitter {
   }
 
   async trackContract(contractId: number) {
+    this.contractSubs.add(contractId);
     await this.send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
+  }
+
+  untrackContract(contractId: number) {
+    this.contractSubs.delete(contractId);
+  }
+
+  /** Contratos abertos AGORA na conta (usado na reconciliação de arranque). */
+  async openContracts(): Promise<
+    Array<{ contractId: number; symbol: string; contractType: string; buyPrice: number; longcode: string; dateStart: number }>
+  > {
+    const res = await this.send({ portfolio: 1 });
+    const list: any[] = res?.portfolio?.contracts ?? [];
+    return list.map((c) => ({
+      contractId: Number(c.contract_id),
+      symbol: c.symbol ?? c.underlying_symbol ?? c.underlying ?? "",
+      contractType: c.contract_type ?? "",
+      buyPrice: Number(c.buy_price ?? 0),
+      longcode: c.longcode ?? "",
+      dateStart: Number(c.date_start ?? c.purchase_time ?? 0),
+    }));
+  }
+
+  /** Resultado de contratos já fechados (para pagar trades órfãos de um downtime). */
+  async closedContracts(limit = 200): Promise<Map<number, { profit: number; sellTime: number }>> {
+    const out = new Map<number, { profit: number; sellTime: number }>();
+    const res = await this.send({ profit_table: 1, limit, description: 0, sort: "DESC" });
+    for (const t of res?.profit_table?.transactions ?? []) {
+      const id = Number(t.contract_id);
+      if (!id) continue;
+      out.set(id, {
+        profit: Number(t.sell_price ?? 0) - Number(t.buy_price ?? 0),
+        sellTime: Number(t.sell_time ?? t.transaction_time ?? 0),
+      });
+    }
+    return out;
   }
 }

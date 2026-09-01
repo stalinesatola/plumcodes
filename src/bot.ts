@@ -395,6 +395,28 @@ export class Bot {
     return this.currentContractId !== null;
   }
 
+  /** Adota um contrato que já estava aberto na conta quando o bot (re)arrancou,
+   *  para o evento de fecho ser processado normalmente (P/L no risco, diário,
+   *  Telegram) em vez de ficar órfão. */
+  adoptContract(c: { contractId: number; contractType?: string; buyPrice?: number; dateStart?: number }): boolean {
+    if (this.currentContractId !== null) return false;
+    const isMultiplier = /MULT/i.test(c.contractType ?? "");
+    const stake = Number(c.buyPrice) || this.cfg.stake.base;
+    this.currentContractId = Number(c.contractId);
+    this.openMeta = {
+      tag: "adopted",
+      features: [],
+      payoutMult: 0,
+      stake,
+      isMultiplier,
+      openedAtMs: (Number(c.dateStart) || Math.floor(Date.now() / 1000)) * 1000,
+      slUsd: stake,
+    };
+    this.risk.notifyOpen();
+    this.log.info(`adotou contrato aberto ${c.contractId} (${c.contractType ?? "?"})`);
+    return true;
+  }
+
   get status() {
     return {
       id: this.id,
