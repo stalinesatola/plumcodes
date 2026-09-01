@@ -19,6 +19,7 @@
  */
 process.env.LOG_SILENT = "1"; // silencia o logger do DerivClient (antes do import)
 import { readFileSync, existsSync } from "node:fs";
+import { exec } from "node:child_process";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
 import { SESSIONS, sessionOpen, nextOpenMs, closeInMs, GOLD_SYMBOL } from "../src/util/markets.ts";
@@ -188,6 +189,8 @@ interface Model {
   botStatus: { ts: number; bots: any[]; risk: any } | null;
   monitorMode: "demo" | "real";
   confirmReal: boolean;
+  confirmRestart: boolean; // tecla [k] — confirmar pm2 restart do bot
+  restartMsg: string; // status do pm2 restart em curso ("" = nada)
   priceIdx: number;
   showStats: boolean; // overlay [t] — estatística dos últimos 100 trades
   disconnectedSince: number; // ts do início da queda de ligação (0 = ligado)
@@ -680,11 +683,15 @@ function render(m: Model, cfg: any): void {
       ? `${T.green}${sym0} ABERTO${RESET}${T.dim} · fecha ${fmtShort(ms.untilMs)}`
       : `${T.red}${sym0} FECHADO${RESET}${T.dim} · ${ms?.label ?? ""}`
     : `${T.dim}mercado …`;
-  const foot = m.confirmReal
-    ? `${bgRed}${T.text} conectar à CONTA REAL? [s] sim  [n] não ${RESET}`
-    : m.showStats
-      ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
-      : `${T.dim}[q] sair   [r] reconectar/atualizar   [t] stats 100   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+  const foot = m.restartMsg
+    ? `${T.yellow}${m.restartMsg}${RESET}`
+    : m.confirmRestart
+      ? `${bgRed}${T.text} reiniciar o BOT (pm2 restart)? [s] sim  [n] não ${RESET}`
+      : m.confirmReal
+        ? `${bgRed}${T.text} conectar à CONTA REAL? [s] sim  [n] não ${RESET}`
+        : m.showStats
+          ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
+          : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [k] reiniciar bot   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
@@ -768,6 +775,8 @@ async function main(): Promise<void> {
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
     confirmReal: false,
+    confirmRestart: false,
+    restartMsg: "",
     priceIdx: 0,
     showStats: false,
     disconnectedSince: 0,
@@ -968,6 +977,31 @@ async function main(): Promise<void> {
     m.botStatus = parseBotStatus(m.logLines);
   };
 
+  /** [k] — `pm2 restart ecosystem.config.cjs`, depois recarrega tudo e reconecta. */
+  function restartBot(): void {
+    m.restartMsg = "reiniciando o bot… (pm2 restart ecosystem.config.cjs)";
+    render(m, cfg);
+    exec(
+      "pm2 restart ecosystem.config.cjs --update-env",
+      { cwd: process.cwd(), timeout: 60_000, windowsHide: true },
+      (err, stdout, stderr) => {
+        const tail = (err ? `${err.message} ${stderr}` : stdout).replace(/\s+/g, " ").trim().slice(-90);
+        m.restartMsg = err ? `pm2 falhou: ${tail}` : `bot reiniciado ✓ ${tail}`;
+        render(m, cfg);
+        // dá um tempo ao bot p/ subir, recarrega o painel e força reconexão do monitor
+        setTimeout(() => {
+          refresh();
+          lastForce = Date.now();
+          if (client) client.forceReconnect();
+          else void bringUp(m.monitorMode);
+          m.restartMsg = "";
+          out(`${ESC}2J`);
+          render(m, cfg);
+        }, 4000);
+      },
+    );
+  }
+
   if (once) {
     await new Promise((r) => setTimeout(r, process.env.DERIV_TOKEN ? 9000 : 200));
     refresh();
@@ -1008,6 +1042,12 @@ async function main(): Promise<void> {
       if (key === "" || key === "q") {
         leaveAlt();
         process.exit(0);
+      } else if (m.restartMsg) {
+        /* reinício em curso — ignora teclas */
+      } else if (m.confirmRestart) {
+        m.confirmRestart = false;
+        if (key === "s" || key === "y") restartBot();
+        else render(m, cfg);
       } else if (m.confirmReal) {
         if (key === "s" || key === "y") {
           m.confirmReal = false;
@@ -1016,6 +1056,9 @@ async function main(): Promise<void> {
           m.confirmReal = false;
           render(m, cfg);
         }
+      } else if (key === "k") {
+        m.confirmRestart = true;
+        render(m, cfg);
       } else if (key === "t") {
         m.showStats = !m.showStats;
         out(`${ESC}2J`);
