@@ -17,6 +17,7 @@ import {
 } from "./util/structure.ts";
 import { createLogger } from "./util/logger.ts";
 import { journal } from "./util/journal.ts";
+import { loadBotDay, saveBotDay } from "./util/botstate.ts";
 import { tgTradeOpen, tgTradeClose, tgRisk } from "./util/telegram.ts";
 
 interface OpenMeta {
@@ -113,6 +114,39 @@ export class Bot {
       this.structBandK = sc.zoneBandK ?? 1.2;
       this.h1 = new CandleAggregator(3600, this.structCfg.invalLookback + 40);
     }
+
+    this.restoreDayState();
+  }
+
+  /** Retoma o estado do dia (contadores, P/L, `stopped`) de um restart no mesmo
+   *  dia UTC — para reiniciar não zerar a disciplina diária. */
+  private restoreDayState() {
+    const s = loadBotDay(this.id);
+    if (!s) return;
+    this.dayKey = new Date().toISOString().slice(0, 10);
+    this.dayWins = s.dayWins;
+    this.dayLosses = s.dayLosses;
+    this.dayTrades = s.dayTrades;
+    this.realizedPnl = s.realizedPnl;
+    if (s.stopped) {
+      this.stopped = true;
+      this.stopReason = s.stopReason;
+    }
+    this.log.info(
+      `estado do dia retomado: ${s.dayWins}W/${s.dayLosses}L/${s.dayTrades}t pnl $${s.realizedPnl.toFixed(2)}` +
+        (s.stopped ? ` — PARADO (${s.stopReason})` : ""),
+    );
+  }
+
+  private persistDayState() {
+    saveBotDay(this.id, {
+      dayWins: this.dayWins,
+      dayLosses: this.dayLosses,
+      dayTrades: this.dayTrades,
+      realizedPnl: this.realizedPnl,
+      stopped: this.stopped,
+      stopReason: this.stopReason,
+    });
   }
 
   needsCandles() {
@@ -154,10 +188,12 @@ export class Bot {
     if (key !== this.dayKey) {
       this.dayKey = key;
       this.dayWins = this.dayLosses = this.dayTrades = 0;
-      if (this.stopped && this.stopReason.startsWith("daily")) {
+      this.realizedPnl = 0; // P/L do bot e DIARIO (botStopLossUsd/botTakeProfitUsd)
+      if (this.stopped && /^(daily|bot (take-profit|stop-loss))/.test(this.stopReason)) {
         this.stopped = false;
         this.log.info(`novo dia ${key}: limites diarios resetados, bot reativado`);
       }
+      this.persistDayState();
     }
   }
   private stopReason = "";
@@ -407,6 +443,7 @@ export class Bot {
         peakR: 0,
       };
       this.dayTrades++;
+      this.persistDayState();
       this.log.info(
         `ENTRAR ${intent.tag} stake=${stake}` +
           (isMultiplier ? ` x${intent.multiplier} SL=${limitOrder?.stop_loss} TP=${limitOrder?.take_profit}` : ` mult=${payoutMult.toFixed(2)}`) +
@@ -526,6 +563,8 @@ export class Bot {
       this.stop(`bot stop-loss ${this.realizedPnl.toFixed(2)}`);
     else if (this.realizedPnl >= Math.abs(this.cfg.botTakeProfitUsd))
       this.stop(`bot take-profit ${this.realizedPnl.toFixed(2)}`);
+
+    this.persistDayState();
   }
 
   stop(reason: string) {
@@ -533,6 +572,7 @@ export class Bot {
     this.stopped = true;
     this.stopReason = reason;
     this.log.warn(`PARADO: ${reason}`);
+    this.persistDayState();
     tgRisk(`⚠️ <b>${this.id} PARADO</b>\n${reason}\nresultado do dia: ${this.dayWins}W/${this.dayLosses}L`);
   }
 
