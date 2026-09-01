@@ -124,7 +124,8 @@ rounded panels, gradient meters, braille price graphs. It **only observes** — 
 trades. Panels:
 
 - **account** — balance, the day's P/L *from the bots* against the daily stop/take
-  meters, this session's opening balance, the previous session's close
+  meters, this session's opening balance, and Gold's own daily reference (D1 open →
+  current %, and yesterday's close)
 - **risk + market** — risk state, and the instrument's market hours: open/closed,
   how long it's been open, how long until it closes (from `trading_times`)
 - **bots** — per bot: its UTC window, live state (`ANALISANDO` / `EM POSIÇÃO` /

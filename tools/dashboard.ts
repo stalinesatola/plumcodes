@@ -183,6 +183,7 @@ interface Model {
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
+  goldDay: { open: number; prevClose: number } | null; // vela D1 do XAUUSD: abertura de hoje + fecho de ontem
   session: any;
   botStatus: { ts: number; bots: any[]; risk: any } | null;
   monitorMode: "demo" | "real";
@@ -377,19 +378,28 @@ function render(m: Model, cfg: any): void {
   buf.push(put(acc, 2, 0, `${T.dim}P/L dia ${pnlCol}${dayPnl >= 0 ? "+" : ""}${dayPnl.toFixed(2)} (${dayPnlPct >= 0 ? "+" : ""}${dayPnlPct.toFixed(2)}%)${RESET}`));
   buf.push(put(acc, 3, 0, meter(towardStop, acc.w - 4, `${T.red}stop ${slPct}%${RESET}`)));
   buf.push(put(acc, 4, 0, meter(towardTake, acc.w - 4, `${T.green}take ${tpPct}%${RESET}`)));
-  if (m.session) {
+  // linha 5: saldo — abertura da sessão (compacto)
+  if (m.session && m.session.openBalance != null) {
     const so = m.session.openBalance;
     const ago = m.session.openTs ? fmtShort(Date.now() - m.session.openTs) : "?";
-    buf.push(put(acc, 6, 0, `${T.dim}abriu ${T.text}${so?.toFixed?.(2) ?? "—"}${T.dim} há ${ago}${RESET}`));
-    if (m.session.prevCloseBalance != null) {
-      const d = m.session.prevOpenBalance != null ? m.session.prevCloseBalance - m.session.prevOpenBalance : null;
-      const dc = d == null ? T.dim : d >= 0 ? T.green : T.red;
-      buf.push(
-        put(acc, 7, 0, `${T.dim}anterior fechou ${T.text}${m.session.prevCloseBalance.toFixed(2)}${d != null ? ` ${dc}${d >= 0 ? "+" : ""}${d.toFixed(2)}` : ""}${RESET}`),
-      );
-    }
+    const sd = m.balance - so;
+    const sdc = sd >= 0 ? T.green : T.red;
+    buf.push(put(acc, 5, 0, `${T.dim}saldo abriu ${T.text}${so.toFixed(2)}${T.dim} há ${ago} ${sdc}${sd >= 0 ? "+" : ""}${sd.toFixed(2)}${RESET}`));
   } else {
-    buf.push(put(acc, 6, 0, `${T.dim}sessão: bot não iniciado${RESET}`));
+    buf.push(put(acc, 5, 0, `${T.dim}saldo: sessão não iniciada${RESET}`));
+  }
+  // linhas 6-7: OURO — vela D1 (abertura de hoje, fecho de ontem)
+  const gd = m.goldDay;
+  const gcur = m.lastTick.get(GOLD_SYMBOL) ?? (m.prices.get(GOLD_SYMBOL)?.slice(-1)[0] ?? 0);
+  if (gd) {
+    const gp = gd.open ? ((gcur - gd.open) / gd.open) * 100 : 0;
+    const gpc = gp >= 0 ? T.green : T.red;
+    buf.push(put(acc, 6, 0, `${T.dim}ouro D1 ${T.text}${gd.open.toFixed(2)}${T.dim} → ${T.text}${gcur ? gcur.toFixed(2) : "—"} ${gpc}${gp >= 0 ? "+" : ""}${gp.toFixed(2)}%${RESET}`));
+    const yd = gd.prevClose ? ((gd.open - gd.prevClose) / gd.prevClose) * 100 : 0;
+    const ydc = yd >= 0 ? T.green : T.red;
+    buf.push(put(acc, 7, 0, `${T.dim}ontem fechou ${T.text}${gd.prevClose.toFixed(2)} ${ydc}${yd >= 0 ? "+" : ""}${yd.toFixed(2)}%${RESET}`));
+  } else {
+    buf.push(put(acc, 6, 0, `${T.dim}ouro D1: (carregando…)${RESET}`));
   }
 
   // ---- RISK + MARKET ----
@@ -630,6 +640,7 @@ async function main(): Promise<void> {
     learn: loadLearn(),
     trades: loadTrades(),
     market: null,
+    goldDay: null,
     session: loadSession(),
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
@@ -664,6 +675,7 @@ async function main(): Promise<void> {
         { open: (midnight + 22 * 3600000) / 1000, close: (midnight + 86399000) / 1000 },
       ],
     };
+    m.goldDay = { open: 4433.1, prevClose: 4429.4 };
     m.session = {
       openBalance: 9945.88,
       openTs: now - 9_600_000,
@@ -810,6 +822,14 @@ async function main(): Promise<void> {
   async function fetchSchedules(): Promise<void> {
     if (!client || !m.connected) return;
     m.market = (await client.marketSchedule(GOLD_SYMBOL).catch(() => null)) ?? m.market;
+    try {
+      const dc = await client.candlesOHLC(GOLD_SYMBOL, 3, 86400);
+      if (dc.length >= 2) {
+        m.goldDay = { open: dc[dc.length - 1]!.open, prevClose: dc[dc.length - 2]!.close };
+      }
+    } catch {
+      /* mercado fechado / sem histórico */
+    }
   }
 
   await bringUp(m.monitorMode);
