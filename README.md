@@ -54,6 +54,11 @@ src/
   util/reconcile.ts   startup: reconciles contracts left open by a restart or a
                       dropped connection — re-tracks the still-open ones (a bot
                       adopts each), settles the rest from the profit table
+  util/structure.ts   daily-structure filter ported from the XAUUSD_DailyStructure
+                      MQL5 indicator: R1/S1 & R2/S2 zones from H1 highs/lows, a
+                      ~10-day invalidation level, EMA20/50 H1 bias — every bot
+                      consults it before entering (no buying into resistance, no
+                      selling into support, no trading past invalidation)
   learn/learner.ts    adaptive layer (TS): Thompson-sampling bandit per bot × bet type,
                       EV gate, kill-switch + probation, parameter hill-climb, persisted
   ml/bridge.ts        spawns the Python sidecar, line-delimited JSON protocol, graceful

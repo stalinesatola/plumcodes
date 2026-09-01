@@ -186,7 +186,7 @@ interface Model {
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
   goldDay: { open: number; prevClose: number } | null; // vela D1 do XAUUSD: abertura de hoje + fecho de ontem
   session: any;
-  botStatus: { ts: number; bots: any[]; risk: any } | null;
+  botStatus: { ts: number; bots: any[]; risk: any; structure: any } | null;
   monitorMode: "demo" | "real";
   confirmReal: boolean;
   confirmRestart: boolean; // tecla [k] — confirmar pm2 restart do bot
@@ -264,13 +264,13 @@ function loadSession(): any {
     return null;
   }
 }
-function parseBotStatus(lines: string[]): { ts: number; bots: any[]; risk: any } | null {
+function parseBotStatus(lines: string[]): { ts: number; bots: any[]; risk: any; structure: any } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const mt = lines[i]!.match(/^\[([^\]]+)\][^{]*main status (\{.*\})\s*$/);
     if (mt) {
       try {
         const o = JSON.parse(mt[2]!);
-        return { ts: Date.parse(mt[1]!), bots: o.bots ?? [], risk: o.risk ?? {} };
+        return { ts: Date.parse(mt[1]!), bots: o.bots ?? [], risk: o.risk ?? {}, structure: o.structure ?? null };
       } catch {
         /* linha truncada */
       }
@@ -507,6 +507,14 @@ function render(m: Model, cfg: any): void {
     if (mkt.note) buf.push(put(risk, 6, 0, `  ${T.dim}${clip(mkt.note, risk.w - 8)}${RESET}`));
   } else {
     buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
+  }
+  // ---- estrutura diária (filtro compartilhado) ----
+  const stc = m.botStatus?.structure;
+  if (stc) {
+    const bcol = stc.bias === "up" ? T.green : stc.bias === "down" ? T.red : T.dim;
+    const bl = stc.bias === "up" ? "▲ ALTA" : stc.bias === "down" ? "▼ BAIXA" : "• NEUTRO";
+    buf.push(put(risk, 7, 0, `${T.dim}estrutura  ${bcol}${bl}${RESET}${T.dim}  S1 ${T.text}${stc.s1?.toFixed(0)}${T.dim} R1 ${T.text}${stc.r1?.toFixed(0)}${RESET}`));
+    buf.push(put(risk, 8, 0, `${T.dim}  S2 ${stc.s2?.toFixed(0)} R2 ${stc.r2?.toFixed(0)} · inval ${stc.invalLow?.toFixed(0)}${RESET}`));
   }
 
   // ---- SESSIONS — relógio das 5 praças (contexto p/ o XAUUSD) ----
@@ -860,6 +868,7 @@ async function main(): Promise<void> {
         { id: "xau-london", stopped: false, open: false },
         { id: "xau-newyork", stopped: false, open: true },
       ],
+      structure: { bias: "up", s1: 4418, r1: 4472, s2: 4361, r2: 4489, invalLow: 4327, invalHigh: 4512, zoneHalf: 3.1 },
     };
     m.learn = {
       bots: {

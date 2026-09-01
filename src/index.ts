@@ -84,7 +84,15 @@ async function main() {
   );
 
   for (const bc of enabled) {
-    const bot = new Bot({ cfg: bc, client, risk, learner, ml, currency: cfg.account.currency });
+    const bot = new Bot({
+      cfg: bc,
+      client,
+      risk,
+      learner,
+      ml,
+      currency: cfg.account.currency,
+      structureCfg: cfg.structure,
+    });
     bots.push(bot);
     const arr = bySymbol.get(bc.symbol) ?? [];
     arr.push(bot);
@@ -105,6 +113,12 @@ async function main() {
       if (group.some((b) => b.needsCandles())) {
         const ohlc = await client.candlesOHLC(symbol, 400, 60);
         for (const b of group) if (b.needsCandles()) b.seedCandles(ohlc);
+      }
+      // histórico H1 p/ o filtro de estrutura diária (zonas de 5-10 dias)
+      if (cfg.structure?.enabled) {
+        const nH1 = (cfg.structure.invalLookback ?? 240) + 40;
+        const h1 = await client.candlesOHLC(symbol, nH1, 3600);
+        for (const b of group) b.seedH1(h1);
       }
     } catch (e) {
       log.error(`seed ${symbol} falhou`, (e as Error).message);
@@ -169,7 +183,8 @@ async function main() {
   const statusTimer = setInterval(() => {
     sessionTick(risk.balance);
     const st = risk.status;
-    log.info("status", { risk: st, bots: bots.map((b) => b.status) });
+    const structure = bots.map((b) => b.structureSnapshot).find((s) => s) ?? null;
+    log.info("status", { risk: st, bots: bots.map((b) => b.status), structure });
 
     if (risk.isHalted && !haltedNotified) {
       haltedNotified = true;

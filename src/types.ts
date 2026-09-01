@@ -40,6 +40,20 @@ export interface AppConfig {
       heartbeatMinutes?: number;
     };
   };
+  /** [Opcional] filtro de estrutura diária (portado do indicador XAUUSD_DailyStructure):
+   *  zonas R1/S1/R2/S2 + invalidação + viés EMA H1. TODOS os bots consultam antes de entrar. */
+  structure?: {
+    enabled: boolean;
+    mode?: "block-counter" | "require-zone";
+    shortLookback?: number;
+    mediumLookback?: number;
+    invalLookback?: number;
+    atrPeriod?: number;
+    zoneAtrMult?: number;
+    emaFast?: number;
+    emaSlow?: number;
+    zoneBandK?: number;
+  };
   bots: BotConfig[];
 }
 
@@ -123,6 +137,8 @@ export interface StrategyContext {
   /** ajuste continuo aprendido pela camada adaptativa (-1..+1, default 0) */
   tuning: number;
   defaultDurationTicks: number;
+  /** [Opcional] estrutura diaria (zonas H1 + vies) para a estrategia consultar */
+  structure?: import("./util/structure.ts").DailyStructure | null;
 }
 
 export interface Strategy {

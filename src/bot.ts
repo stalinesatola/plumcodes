@@ -1,4 +1,4 @@
-import type { BotConfig, ContractResult, Strategy, StrategyContext, TradeIntent } from "./types.ts";
+import type { AppConfig, BotConfig, ContractResult, Strategy, StrategyContext, TradeIntent } from "./types.ts";
 import type { DerivClient } from "./deriv/client.ts";
 import type { RiskManager } from "./risk/manager.ts";
 import type { Learner } from "./learn/learner.ts";
@@ -7,6 +7,14 @@ import { getStrategy } from "./strategies/index.ts";
 import { buildFeatures } from "./util/features.ts";
 import { lastDigit } from "./util/indicators.ts";
 import { CandleAggregator, type Candle } from "./util/candles.ts";
+import {
+  computeStructure,
+  structureGate,
+  DEFAULT_STRUCTURE_CFG,
+  type DailyStructure,
+  type StructureCfg,
+  type StructureMode,
+} from "./util/structure.ts";
 import { createLogger } from "./util/logger.ts";
 import { journal } from "./util/journal.ts";
 import { tgTradeOpen, tgTradeClose, tgRisk } from "./util/telegram.ts";
@@ -45,6 +53,13 @@ export class Bot {
   private maxSeries = 600;
   private candles: CandleAggregator | null = null;
 
+  // filtro de estrutura diaria (zonas H1 + vies) — compartilhado por todos os bots
+  private h1: CandleAggregator | null = null;
+  private structCfg: StructureCfg | null = null;
+  private structMode: StructureMode = "block-counter";
+  private structBandK = 1.2;
+  private structure: DailyStructure | null = null;
+
   private currentContractId: number | null = null;
   private openMeta: OpenMeta | null = null;
   private martingaleStep = 0;
@@ -69,6 +84,7 @@ export class Bot {
     learner: Learner;
     ml: MlBridge;
     currency: string;
+    structureCfg?: AppConfig["structure"];
   }) {
     this.cfg = opts.cfg;
     this.id = opts.cfg.id;
@@ -81,6 +97,22 @@ export class Bot {
     this.currency = opts.currency;
     this.log = createLogger(`bot:${this.id}`);
     if (this.strat.kind === "candle") this.candles = new CandleAggregator(60, 400);
+
+    const sc = opts.structureCfg;
+    if (sc?.enabled) {
+      this.structCfg = {
+        shortLookback: sc.shortLookback ?? DEFAULT_STRUCTURE_CFG.shortLookback,
+        mediumLookback: sc.mediumLookback ?? DEFAULT_STRUCTURE_CFG.mediumLookback,
+        invalLookback: sc.invalLookback ?? DEFAULT_STRUCTURE_CFG.invalLookback,
+        atrPeriod: sc.atrPeriod ?? DEFAULT_STRUCTURE_CFG.atrPeriod,
+        zoneAtrMult: sc.zoneAtrMult ?? DEFAULT_STRUCTURE_CFG.zoneAtrMult,
+        emaFast: sc.emaFast ?? DEFAULT_STRUCTURE_CFG.emaFast,
+        emaSlow: sc.emaSlow ?? DEFAULT_STRUCTURE_CFG.emaSlow,
+      };
+      this.structMode = sc.mode ?? "block-counter";
+      this.structBandK = sc.zoneBandK ?? 1.2;
+      this.h1 = new CandleAggregator(3600, this.structCfg.invalLookback + 40);
+    }
   }
 
   needsCandles() {
@@ -97,6 +129,24 @@ export class Bot {
   seedCandles(candles: Candle[]) {
     this.candles?.seed(candles);
     this.log.info(`seed ${candles.length} candles M1`);
+  }
+
+  /** Semeia o histórico H1 usado pelo filtro de estrutura diária. */
+  seedH1(candles: Candle[]) {
+    if (!this.h1 || !this.structCfg) return;
+    this.h1.seed(candles);
+    this.structure = computeStructure(this.h1.closed, this.structCfg);
+    if (this.structure) {
+      const s = this.structure;
+      this.log.info(
+        `estrutura: viés ${s.bias} · S1 ${s.s1.toFixed(2)} R1 ${s.r1.toFixed(2)} · S2 ${s.s2.toFixed(2)} R2 ${s.r2.toFixed(2)} · inval ${s.invalLow.toFixed(2)}`,
+      );
+    }
+  }
+
+  /** Última estrutura calculada (para o status/monitor). */
+  get structureSnapshot(): DailyStructure | null {
+    return this.structure;
   }
 
   private rollDay() {
@@ -142,6 +192,7 @@ export class Bot {
       params: this.cfg.params,
       tuning: this.learner.tuning(this.id),
       defaultDurationTicks: this.cfg.durationTicks,
+      structure: this.structure,
     };
   }
 
@@ -154,6 +205,11 @@ export class Bot {
 
     let candleClosed = false;
     if (this.candles) candleClosed = this.candles.add(quote, epoch) !== null;
+
+    // estrutura diária: recalcula a cada barra H1 fechada
+    if (this.h1 && this.structCfg && this.h1.add(quote, epoch) !== null) {
+      this.structure = computeStructure(this.h1.closed, this.structCfg) ?? this.structure;
+    }
 
     this.rollDay();
 
@@ -188,6 +244,18 @@ export class Bot {
 
     const intent = this.strat.evaluate(this.ctx(candleClosed));
     if (!intent) return;
+
+    // filtro de estrutura diária (compartilhado por todos os bots)
+    if (this.structure && this.structCfg) {
+      const dir: "up" | "down" =
+        intent.contractType === "MULTUP" || intent.contractType === "CALL" ? "up" : "down";
+      const g = structureGate(dir, quote, this.structure, this.structMode, this.structBandK);
+      if (!g.ok) {
+        this.log.debug(`skip ${intent.tag}: estrutura — ${g.reason}`);
+        this.lastTradeEpoch = epoch;
+        return;
+      }
+    }
 
     this.lastTradeEpoch = epoch;
     void this.enter(intent);

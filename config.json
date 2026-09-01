@@ -53,6 +53,20 @@
     }
   },
 
+  "structure": {
+    "//": "Filtro de estrutura diaria (portado do indicador XAUUSD_DailyStructure): zonas R1/S1 (~1d) e R2/S2 (~5d) de maximas/minimas H1, nivel de invalidacao (~10d), vies EMA20/50 H1. TODOS os bots consultam antes de entrar. mode 'block-counter' so barra o que vai claramente contra a estrutura; 'require-zone' exige o preco numa zona a favor.",
+    "enabled": true,
+    "mode": "block-counter",
+    "shortLookback": 24,
+    "mediumLookback": 120,
+    "invalLookback": 240,
+    "atrPeriod": 14,
+    "zoneAtrMult": 0.6,
+    "emaFast": 20,
+    "emaSlow": 50,
+    "zoneBandK": 1.2
+  },
+
   "bots": [
     {
       "//": "SYDNEY 21-06 UTC. Liquidez fina, ouro tende a oscilar em range -> reversao a media (Bollinger 2.0 + RSI). Janela cruza a meia-noite.",
