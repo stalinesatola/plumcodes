@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: só Gold/USD (frxXAUUSD). Vários setups no MESMO par para estudá-lo a fundo. O monitor mostra o relógio das 5 grandes praças (Sydney/Tokyo/Frankfurt/London/New York) como contexto — nenhum índice é operado.",
+  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário.",
 
   "account": {
     "mode": "demo",
@@ -9,7 +9,7 @@
   "risk": {
     "dailyStopLossPct": 8,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 3,
+    "maxConcurrentBots": 5,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -55,46 +55,52 @@
 
   "bots": [
     {
-      "//": "Reversao a media (Bollinger + RSI) na sessao de Londres. Bandas afrouxadas + janela alargada p/ ver mais entradas no estudo.",
-      "id": "xau-meanrev-london",
+      "//": "SYDNEY 21-06 UTC. Liquidez fina, ouro tende a oscilar em range -> reversao a media (Bollinger 2.0 + RSI). Janela cruza a meia-noite.",
+      "id": "xau-sydney",
       "enabled": true,
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
-        "bbPeriod": 20,
-        "bbK": 1.8,
-        "rsiPeriod": 14,
-        "rsiOb": 66,
-        "rsiOs": 34,
-        "stopAtrMult": 1.0,
-        "tradeStart": 6,
-        "tradeEnd": 14,
-        "multiplier": 100,
-        "rr": 1.5
+        "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
+        "stopAtrMult": 1.0, "tradeStart": 21, "tradeEnd": 6, "multiplier": 100, "rr": 1.5
       },
-      "riskPerTradePct": 1,
-      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
+      "riskPerTradePct": 0.5,
+      "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
-      "botStopLossUsd": 25,
-      "botTakeProfitUsd": 35
+      "botStopLossUsd": 15,
+      "botTakeProfitUsd": 25
     },
     {
-      "//": "Momentum pos-abertura de NY. forceMult 1.6 -> 1.1 e janela 12-21 p/ gerar mais entradas (menor qualidade, mas e estudo em demo).",
-      "id": "xau-ny-momo",
+      "//": "TOKYO 00-09 UTC. Mesma logica de reversao a media da sessao asiatica.",
+      "id": "xau-tokyo",
+      "enabled": true,
+      "strategy": "gold_meanrev_london",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "params": {
+        "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
+        "stopAtrMult": 1.0, "tradeStart": 0, "tradeEnd": 9, "multiplier": 100, "rr": 1.5
+      },
+      "riskPerTradePct": 0.5,
+      "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
+      "maxHoldMinutes": 45,
+      "botStopLossUsd": 15,
+      "botTakeProfitUsd": 25
+    },
+    {
+      "//": "FRANKFURT 06-14 UTC. Abertura da Europa costuma dar expansao de volatilidade -> momentum (corpo de vela >= forceMult*ATR).",
+      "id": "xau-frankfurt",
       "enabled": true,
       "strategy": "gold_ny_momo",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
       "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
-        "tradeStart": 12,
-        "tradeEnd": 21,
-        "forceMult": 1.1,
-        "stopAtrMult": 1.0,
-        "multiplier": 100,
-        "rr": 1.5
+        "tradeStart": 6, "tradeEnd": 14, "forceMult": 1.2, "stopAtrMult": 1.0,
+        "multiplier": 100, "rr": 1.5
       },
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
@@ -103,30 +109,40 @@
       "botTakeProfitUsd": 35
     },
     {
-      "//": "Reversao a media 24h (mesma logica, sem filtro de sessao) — gera muitas entradas p/ estudar o comportamento do ouro nas horas mortas tambem.",
-      "id": "xau-meanrev-24h",
+      "//": "LONDON 07-16 UTC. A sessao mais mean-revert do ouro na caracterizacao (M5 VR(4)=0.90). Bandas mais apertadas p/ mais entradas.",
+      "id": "xau-london",
       "enabled": true,
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
-        "bbPeriod": 20,
-        "bbK": 2.0,
-        "rsiPeriod": 14,
-        "rsiOb": 70,
-        "rsiOs": 30,
-        "stopAtrMult": 1.0,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100,
-        "rr": 1.5
+        "bbPeriod": 20, "bbK": 1.8, "rsiPeriod": 14, "rsiOb": 66, "rsiOs": 34,
+        "stopAtrMult": 1.0, "tradeStart": 7, "tradeEnd": 16, "multiplier": 100, "rr": 1.5
       },
-      "riskPerTradePct": 0.5,
-      "daily": { "maxWins": 8, "maxLosses": 5, "maxTrades": 20 },
-      "maxHoldMinutes": 40,
-      "botStopLossUsd": 15,
-      "botTakeProfitUsd": 25
+      "riskPerTradePct": 1,
+      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
+      "maxHoldMinutes": 45,
+      "botStopLossUsd": 25,
+      "botTakeProfitUsd": 35
+    },
+    {
+      "//": "NEW YORK 12-21 UTC. Overlap Londres/NY = pico de volatilidade do ouro -> momentum pos-abertura.",
+      "id": "xau-newyork",
+      "enabled": true,
+      "strategy": "gold_ny_momo",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "params": {
+        "tradeStart": 12, "tradeEnd": 21, "forceMult": 1.1, "stopAtrMult": 1.0,
+        "multiplier": 100, "rr": 1.5
+      },
+      "riskPerTradePct": 1,
+      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
+      "maxHoldMinutes": 30,
+      "botStopLossUsd": 25,
+      "botTakeProfitUsd": 35
     }
   ]
 }

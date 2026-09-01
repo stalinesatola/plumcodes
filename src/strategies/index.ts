@@ -48,6 +48,10 @@ function atr(cs: Candle[], period: number): number | null {
 }
 
 const hourUTC = (epoch: number) => new Date(epoch * 1000).getUTCHours();
+/** hora `h` está na janela [start,end)? Suporta janela que cruza a meia-noite
+ *  (ex.: Sydney 21→06). */
+const inWin = (h: number, start: number, end: number) =>
+  start <= end ? h >= start && h < end : h >= start || h < end;
 
 // ============================================================================
 // 1) gold_session_breakout — rompimento de canal Donchian M15, filtrado por sessao.
@@ -74,7 +78,7 @@ const goldSessionBreakout: Strategy = {
     if (m1.length < 90) return null;
     const last = m1[m1.length - 1]!;
     const h = hourUTC(last.epoch);
-    if (h < tradeStart || h >= tradeEnd) return null;
+    if (!inWin(h, tradeStart, tradeEnd)) return null;
 
     // canal Donchian em M15 (barras fechadas)
     const m15 = rs(m1, 900).slice(0, -1);
@@ -133,7 +137,7 @@ const goldTrendM15: Strategy = {
     const closed = m15.slice(0, -1);
     const last = closed[closed.length - 1]!;
     const h = hourUTC(m1[m1.length - 1]!.epoch);
-    if (h < hStart || h >= hEnd) return null;
+    if (!inWin(h, hStart, hEnd)) return null;
 
     const cl = closed.map((c) => c.close);
     const f = ema(cl, fastP);
@@ -187,7 +191,7 @@ const goldMeanRevLondon: Strategy = {
     const closed = m5.slice(0, -1);
     const last = closed[closed.length - 1]!;
     const h = hourUTC(m1[m1.length - 1]!.epoch);
-    if (h < hStart || h >= hEnd) return null;
+    if (!inWin(h, hStart, hEnd)) return null;
 
     const cl = closed.map((c) => c.close);
     const mid = sma(cl, bbP);
@@ -237,7 +241,7 @@ const goldNyMomo: Strategy = {
     const closed = m5.slice(0, -1);
     const last = closed[closed.length - 1]!;
     const h = hourUTC(m1[m1.length - 1]!.epoch);
-    if (h < hStart || h >= hEnd) return null;
+    if (!inWin(h, hStart, hEnd)) return null;
 
     const a = atr(closed, 14);
     if (a == null || a <= 0) return null;
@@ -276,7 +280,7 @@ const idxSessionMomo: Strategy = {
     const m5 = rs(m1, 300).slice(0, -1);
     if (m5.length < emaSlow + 20) return null;
     const h = hourUTC(m1[m1.length - 1]!.epoch);
-    if (h < hStart || h >= hEnd) return null;
+    if (!inWin(h, hStart, hEnd)) return null;
 
     const cl = m5.map((c) => c.close);
     const f = ema(cl, emaFast);
@@ -314,7 +318,7 @@ const idxOrb: Strategy = {
     if (m1.length < orbMin + 40) return null;
     const now = m1[m1.length - 1]!;
     const h = hourUTC(now.epoch);
-    if (h < hStart || h >= hEnd) return null;
+    if (!inWin(h, hStart, hEnd)) return null;
 
     // início da sessão em epoch (hoje)
     const d = new Date(now.epoch * 1000);

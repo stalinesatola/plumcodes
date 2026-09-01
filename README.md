@@ -142,15 +142,14 @@ Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with
 `node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` trades **only Gold / USD** (`frxXAUUSD`, Multipliers) — three setups on
-the one pair to study it in depth: `xau-meanrev-london` (Bollinger + RSI in the London
-window), `xau-ny-momo` (NY-session momentum), and `xau-meanrev-24h` (the mean-reversion
-logic with no session filter, for more samples). The monitor's **sessions** panel shows
-the five major FX trading centres (Sydney → Tokyo → Frankfurt → London → New York) as a
-pure time-window clock — open / closed / opens-in, with the London+NY overlap flagged
-as the peak-volatility window for Gold. Nothing but XAUUSD is ever traded; the sessions
-are context only, since Gold's intraday behaviour tracks that Asian → London → NY
-handover.
+`config.json` trades **only Gold / USD** (`frxXAUUSD`, Multipliers) — one setup per
+trading centre, each active only in its own UTC session window, all on the same pair:
+`xau-sydney` (21–06) and `xau-tokyo` (00–09) run Bollinger + RSI mean-reversion for the
+thin Asian range; `xau-frankfurt` (06–14) and `xau-newyork` (12–21) run post-open
+momentum; `xau-london` (07–16) runs mean-reversion in Gold's most range-bound session.
+The monitor's **sessions** panel shows those five centres as a live clock — open /
+closed / opens-in, with the London+NY overlap flagged as the peak-volatility window.
+Nothing but XAUUSD is ever traded; the sessions are just the schedule.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 

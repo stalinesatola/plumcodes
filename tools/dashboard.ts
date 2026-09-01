@@ -677,7 +677,7 @@ async function main(): Promise<void> {
     m.trades = {
       open: [
         {
-          botId: "xau-ny-momo",
+          botId: "xau-newyork",
           tag: "ny_up",
           dir: "up",
           entry: ser[ser.length - 40]!,
@@ -688,26 +688,26 @@ async function main(): Promise<void> {
         },
       ],
       closed: [
-        { ts: now - 26_400_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
-        { ts: now - 24_900_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 23_100_000, botId: "xau-meanrev-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
-        { ts: now - 12_600_000, botId: "xau-meanrev-24h", symbol: "frxXAUUSD", tag: "mr_long", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 8_600_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 6_100_000, botId: "xau-meanrev-24h", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.5, isWin: true, r: 1.5 },
-        { ts: now - 4_200_000, botId: "xau-ny-momo", symbol: "frxXAUUSD", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
+        { ts: now - 26_400_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
+        { ts: now - 24_900_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 23_100_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
+        { ts: now - 12_600_000, botId: "xau-tokyo", symbol: "frxXAUUSD", tag: "mr_long", profit: -1.0, isWin: false, r: -1.0 },
+        { ts: now - 8_600_000, botId: "xau-newyork", symbol: "frxXAUUSD", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
+        { ts: now - 6_100_000, botId: "xau-tokyo", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.5, isWin: true, r: 1.5 },
+        { ts: now - 4_200_000, botId: "xau-newyork", symbol: "frxXAUUSD", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
       ],
     };
     m.botStatus = {
       ts: now - 20_000,
       risk: { pnlToday: 1.85, pnlTodayPct: 0.019, lossStreak: 0, halted: null },
       bots: [
-        { id: "xau-meanrev-london", stopped: false, open: false },
-        { id: "xau-ny-momo", stopped: false, open: true },
+        { id: "xau-london", stopped: false, open: false },
+        { id: "xau-newyork", stopped: false, open: true },
       ],
     };
     m.learn = {
       bots: {
-        "xau-ny-momo": {
+        "xau-newyork": {
           tuning: 0.1,
           onProbation: false,
           arms: { ny_up: { recent: [1, 0, 1, 1], trades: 4 }, ny_dn: { recent: [0, 1], trades: 2 } },
@@ -716,7 +716,7 @@ async function main(): Promise<void> {
     };
     m.logLines = [
       "[2026-08-31T17:12:15Z] INFO  main status ...",
-      "[2026-08-31T18:41:03Z] INFO  bot:xau-ny-momo ENTRAR ny_up stake=2 x100 SL=1.9 TP=2.85",
+      "[2026-08-31T18:41:03Z] INFO  bot:xau-newyork ENTRAR ny_up stake=2 x100 SL=1.9 TP=2.85",
       "[2026-08-31T18:41:04Z] INFO  deriv socket aberto (autenticado via OTP)",
       "[2026-08-31T18:52:30Z] INFO  main reconectado e re-subscrito",
     ];

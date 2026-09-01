@@ -15,11 +15,11 @@ export interface Session {
 }
 
 export const SESSIONS: Session[] = [
-  { key: "sydney", label: "Sydney", hours: [22, 7] },
+  { key: "sydney", label: "Sydney", hours: [21, 6] },
   { key: "tokyo", label: "Tokyo", hours: [0, 9] },
-  { key: "frankfurt", label: "Frankfurt", hours: [7, 16] },
-  { key: "london", label: "London", hours: [8, 17] },
-  { key: "newyork", label: "New York", hours: [13, 22] },
+  { key: "frankfurt", label: "Frankfurt", hours: [6, 14] },
+  { key: "london", label: "London", hours: [7, 16] },
+  { key: "newyork", label: "New York", hours: [12, 21] },
 ];
 
 const inRange = (h: number, a: number, b: number) => (a <= b ? h >= a && h < b : h >= a || h < b);
