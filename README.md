@@ -135,22 +135,22 @@ trades. Panels:
   with cumulative R, the bandit/ML state, and a tail of `data/bot.log`
 
 Shortcuts: `q` quit · `r` refresh · `a` switch the monitor between demo/real (real
-asks to confirm). `--symbols X` to change the instrument, `--once` to print one frame.
-Truecolor terminal recommended (Windows Terminal works).
+asks to confirm). `--once` to print one frame. Truecolor terminal recommended
+(Windows Terminal works).
 
 Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with
 `node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` currently trades **only Gold / USD** (`frxXAUUSD`, Multipliers) — three
-setups on the one pair to study it in depth: `xau-meanrev-london` (Bollinger + RSI in
-the London window), `xau-ny-momo` (NY-session momentum), and `xau-meanrev-24h` (the
-mean-reversion logic with no session filter, for more samples). The index markets
-(Tokyo `OTC_N225`, Sydney `OTC_AS51`, Frankfurt `OTC_GDAXI`) are **disabled** — they
-stay in the config only so the monitor's `markets` panel can show their session
-clock (open / closed / opens-in), which is useful context for Gold since its price
-tracks the Asian → London → NY handover. Deriv offers no Multipliers and almost no
-M1 history for indices, so they can't be backtested anyway.
+`config.json` trades **only Gold / USD** (`frxXAUUSD`, Multipliers) — three setups on
+the one pair to study it in depth: `xau-meanrev-london` (Bollinger + RSI in the London
+window), `xau-ny-momo` (NY-session momentum), and `xau-meanrev-24h` (the mean-reversion
+logic with no session filter, for more samples). The monitor's **sessions** panel shows
+the five major FX trading centres (Sydney → Tokyo → Frankfurt → London → New York) as a
+pure time-window clock — open / closed / opens-in, with the London+NY overlap flagged
+as the peak-volatility window for Gold. Nothing but XAUUSD is ever traded; the sessions
+are context only, since Gold's intraday behaviour tracks that Asian → London → NY
+handover.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
 

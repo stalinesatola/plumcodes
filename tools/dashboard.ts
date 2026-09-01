@@ -21,7 +21,7 @@ process.env.LOG_SILENT = "1"; // silencia o logger do DerivClient (antes do impo
 import { readFileSync, existsSync } from "node:fs";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
-import { MARKETS, marketBySymbol } from "../src/util/markets.ts";
+import { SESSIONS, sessionOpen, nextOpenMs, closeInMs, GOLD_SYMBOL } from "../src/util/markets.ts";
 
 // ------------------------------------------------------------------ ANSI / tema
 const ESC = "\x1b[";
@@ -183,7 +183,6 @@ interface Model {
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
-  marketSchedules: Record<string, { open: boolean; intervals: Array<{ open: number; close: number }>; note: string }>;
   session: any;
   botStatus: { ts: number; bots: any[]; risk: any } | null;
   monitorMode: "demo" | "real";
@@ -417,61 +416,52 @@ function render(m: Model, cfg: any): void {
     buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
   }
 
-  // ---- MARKETS — relógio de sessões (só Gold opera; resto é referência) ----
+  // ---- SESSIONS — relógio das 5 praças (contexto p/ o XAUUSD) ----
   const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: PANEL_H };
-  buf.push(...box(strat, " markets ", T.blue));
-  const bots: any[] = cfg.bots ?? [];
-  const dow = new Date().getUTCDay();
-  const isWeekday = dow >= 1 && dow <= 5;
-
-  const mkStat = (mk2: (typeof MARKETS)[number]) => {
-    const sc = m.marketSchedules[mk2.symbol];
-    if (sc && sc.intervals.length) {
-      const ss = marketSince(sc.intervals);
-      return { open: sc.open && ss.open, sinceMs: ss.sinceMs, untilMs: ss.untilMs, label: ss.label };
-    }
-    // fallback: janela de sessão + dia útil
-    const open = isWeekday && nowUtcH >= mk2.session[0] && nowUtcH < mk2.session[1];
-    const toOpen = ((mk2.session[0] - nowUtcH + 24) % 24) * 3600_000;
-    return { open, sinceMs: 0, untilMs: open ? (mk2.session[1] - nowUtcH) * 3600_000 : toOpen, label: `abre em ${fmtShort(toOpen)}` };
-  };
+  buf.push(...box(strat, " sessions ", T.blue));
+  const now = new Date();
+  const sessRows = SESSIONS.map((s) => ({
+    s,
+    open: sessionOpen(s, now),
+    closeMs: closeInMs(s, now),
+    openMs: nextOpenMs(s, now),
+  }));
+  const overlap = sessRows.filter((r) => r.open).length >= 2;
+  sessRows.sort((a, b) => (a.open === b.open ? (a.open ? a.closeMs - b.closeMs : a.openMs - b.openMs) : a.open ? -1 : 1));
 
   let sr = 0;
-  const gold = MARKETS.find((x) => x.symbol === "frxXAUUSD")!;
-  const others = MARKETS.filter((x) => x.symbol !== "frxXAUUSD");
-  for (const mk2 of [gold, ...others]) {
+  for (const r of sessRows) {
     if (sr >= strat.h - 3) break;
-    const st = mkStat(mk2);
-    const traded = bots.some((b) => b.symbol === mk2.symbol && b.enabled);
-    const dotc = st.open ? T.green + "●" : T.dim + "○";
-    const nameShort = mk2.label.split(" · ")[0]!;
-    const timing = st.open
-      ? `${T.green}aberto${RESET} ${T.dim}${pad(fmtShort(st.sinceMs), 7)}${T.dim}fecha ${fmtShort(st.untilMs)}`
-      : `${T.dim}fechado · abre ${fmtShort(st.untilMs)}`;
-    buf.push(
-      put(strat, sr++, 0, `${dotc}${RESET} ${T.text}${pad(nameShort + (traded ? T.cyan + " ◀" : ""), 13)}${RESET}${timing}${RESET}`),
-    );
+    const isNYorLDN = r.open && (r.s.key === "london" || r.s.key === "newyork");
+    const dotc = r.open ? (isNYorLDN && overlap ? T.yellow + "◆" : T.green + "●") : T.dim + "○";
+    const timing = r.open
+      ? `${T.green}aberto${RESET} ${T.dim}fecha ${fmtShort(r.closeMs)}`
+      : `${T.dim}fechado · abre ${fmtShort(r.openMs)}`;
+    buf.push(put(strat, sr++, 0, `${dotc}${RESET} ${T.text}${pad(r.s.label, 11)}${RESET}${timing}${RESET}`));
   }
-  // rodapé: desempenho do Gold (único que opera)
-  const gcl = m.trades.closed.filter((c) => c.symbol === "frxXAUUSD" || !c.symbol);
+  const bothLN =
+    sessRows.find((r) => r.s.key === "london")?.open && sessRows.find((r) => r.s.key === "newyork")?.open;
+  buf.push(put(strat, strat.h - 3, 0, `${T.border}${"─".repeat(strat.w - 4)}${RESET}`));
+  const gcl = m.trades.closed;
   const gw = gcl.filter((c) => c.isWin).length;
   const gR = gcl.reduce((s, c) => s + c.r, 0);
-  buf.push(put(strat, strat.h - 3, 0, `${T.border}${"─".repeat(strat.w - 4)}${RESET}`));
   buf.push(
     put(
       strat,
       strat.h - 2,
       0,
-      gcl.length
-        ? `${T.dim}Gold: ${T.text}${gcl.length}t${T.dim} · acerto ${T.text}${((gw / gcl.length) * 100).toFixed(0)}%${T.dim} · ${gR >= 0 ? T.green : T.red}${gR >= 0 ? "+" : ""}${gR.toFixed(1)}R${RESET}`
-        : `${T.dim}Gold: sem operações fechadas ainda${RESET}`,
+      bothLN
+        ? `${T.yellow}◆ overlap London+NY — vol. máx. do ouro${RESET}`
+        : gcl.length
+          ? `${T.dim}XAUUSD: ${T.text}${gcl.length}t${T.dim} · ${T.text}${((gw / gcl.length) * 100).toFixed(0)}%${T.dim} · ${gR >= 0 ? T.green : T.red}${gR >= 0 ? "+" : ""}${gR.toFixed(1)}R${RESET}`
+          : `${T.dim}XAUUSD: sem operações fechadas ainda${RESET}`,
     ),
   );
 
   const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
   const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
-  const dec = marketBySymbol(sym)?.dec ?? (sym.startsWith("frx") ? 2 : 4);
+  const dec = 2; // XAUUSD
 
   // ---- PRICE (largo) ----
   const pTop = top + PANEL_H;
@@ -623,7 +613,7 @@ async function main(): Promise<void> {
   const demo = args.includes("--demo"); // dados sintéticos, sem ligação — para docs/SVG
   const symIdx = args.indexOf("--symbols");
   const symbols =
-    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : MARKETS.map((x) => x.symbol);
+    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : [GOLD_SYMBOL];
 
   const cfg = loadRiskCfg();
   const m: Model = {
@@ -640,7 +630,6 @@ async function main(): Promise<void> {
     learn: loadLearn(),
     trades: loadTrades(),
     market: null,
-    marketSchedules: {},
     session: loadSession(),
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
@@ -662,7 +651,7 @@ async function main(): Promise<void> {
       px += Math.sin(i / 23) * 0.9 + (Math.random() - 0.5) * 1.4 + (i > 400 ? 0.04 : -0.02);
       ser.push(Number(px.toFixed(2)));
     }
-    m.priceIdx = Math.max(0, symbols.indexOf("frxXAUUSD"));
+    m.priceIdx = 0;
     m.prices.set("frxXAUUSD", ser);
     m.lastTick.set("frxXAUUSD", ser[ser.length - 1]!);
     const midnight = Math.floor(now / 86400000) * 86400000;
@@ -674,14 +663,6 @@ async function main(): Promise<void> {
         { open: midnight / 1000, close: (midnight + 21 * 3600000) / 1000 },
         { open: (midnight + 22 * 3600000) / 1000, close: (midnight + 86399000) / 1000 },
       ],
-    };
-    const S = Math.floor(now / 1000);
-    const iv = (fromH: number, toH: number) => [{ open: S + fromH * 3600, close: S + toH * 3600 }];
-    m.marketSchedules = {
-      frxXAUUSD: { open: true, note: "Fridays: Closes early (at 20:55)", intervals: iv(-6.3, 2.1) },
-      OTC_GDAXI: { open: true, note: "", intervals: iv(-1.7, 4.9) },
-      OTC_N225: { open: false, note: "", intervals: iv(3.4, 23.4) },
-      OTC_AS51: { open: false, note: "", intervals: iv(6.1, 12.6) },
     };
     m.session = {
       openBalance: 9945.88,
@@ -768,7 +749,6 @@ async function main(): Promise<void> {
 
   let client: DerivClient | null = null;
   let mktTick = 0;
-  const curSym = () => symbols[m.priceIdx % symbols.length] ?? "frxXAUUSD";
 
   async function bringUp(mode: "demo" | "real"): Promise<void> {
     if (!process.env.DERIV_TOKEN) {
@@ -829,11 +809,7 @@ async function main(): Promise<void> {
 
   async function fetchSchedules(): Promise<void> {
     if (!client || !m.connected) return;
-    for (const mk of MARKETS) {
-      const sc = await client.marketSchedule(mk.symbol).catch(() => null);
-      if (sc) m.marketSchedules[mk.symbol] = sc;
-    }
-    m.market = m.marketSchedules[curSym()] ?? m.market;
+    m.market = (await client.marketSchedule(GOLD_SYMBOL).catch(() => null)) ?? m.market;
   }
 
   await bringUp(m.monitorMode);
@@ -888,11 +864,6 @@ async function main(): Promise<void> {
         out(`${ESC}2J`);
         refresh();
         render(m, cfg);
-      } else if (key === "n" || key === "p") {
-        m.priceIdx = (m.priceIdx + (key === "n" ? 1 : symbols.length - 1)) % symbols.length;
-        out(`${ESC}2J`);
-        render(m, cfg);
-        m.market = m.marketSchedules[curSym()] ?? m.market;
       } else if (key === "a") {
         if (m.monitorMode === "real") {
           void bringUp("demo").then(() => render(m, cfg));

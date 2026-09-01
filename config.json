@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: só Gold/USD (frxXAUUSD). Vários setups no MESMO par para estudá-lo a fundo. Índices ficam desativados (só aparecem no painel 'markets' do monitor como referência de horário).",
+  "//": "FOCO: só Gold/USD (frxXAUUSD). Vários setups no MESMO par para estudá-lo a fundo. O monitor mostra o relógio das 5 grandes praças (Sydney/Tokyo/Frankfurt/London/New York) como contexto — nenhum índice é operado.",
 
   "account": {
     "mode": "demo",
@@ -127,44 +127,6 @@
       "maxHoldMinutes": 40,
       "botStopLossUsd": 15,
       "botTakeProfitUsd": 25
-    },
-
-    {
-      "//": "INDICES — DESATIVADOS. Ficam aqui para o painel 'markets' do monitor mostrar horario de abertura. Nao operam.",
-      "id": "tokyo-momo",
-      "enabled": false,
-      "strategy": "idx_session_momo",
-      "symbol": "OTC_N225",
-      "durationTicks": 15,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
-      "params": { "tradeStart": 0, "tradeEnd": 6, "emaFast": 8, "emaSlow": 21, "forceMult": 0.6, "durationMin": 15 },
-      "daily": { "maxWins": 4, "maxLosses": 3, "maxTrades": 8 },
-      "botStopLossUsd": 8,
-      "botTakeProfitUsd": 12
-    },
-    {
-      "id": "sydney-momo",
-      "enabled": false,
-      "strategy": "idx_session_momo",
-      "symbol": "OTC_AS51",
-      "durationTicks": 15,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
-      "params": { "tradeStart": 0, "tradeEnd": 6, "emaFast": 8, "emaSlow": 21, "forceMult": 0.6, "durationMin": 15 },
-      "daily": { "maxWins": 4, "maxLosses": 3, "maxTrades": 8 },
-      "botStopLossUsd": 8,
-      "botTakeProfitUsd": 12
-    },
-    {
-      "id": "frankfurt-momo",
-      "enabled": false,
-      "strategy": "idx_session_momo",
-      "symbol": "OTC_GDAXI",
-      "durationTicks": 15,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
-      "params": { "tradeStart": 7, "tradeEnd": 16, "emaFast": 8, "emaSlow": 21, "forceMult": 0.6, "durationMin": 15 },
-      "daily": { "maxWins": 4, "maxLosses": 3, "maxTrades": 8 },
-      "botStopLossUsd": 8,
-      "botTakeProfitUsd": 12
     }
   ]
 }
