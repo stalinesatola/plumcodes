@@ -7,7 +7,7 @@
   },
 
   "risk": {
-    "dailyStopLossPct": 8,
+    "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
     "maxConcurrentBots": 5,
     "maxOpenContractsPerBot": 1,
