@@ -771,7 +771,7 @@ async function main(): Promise<void> {
   const symbols =
     symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : [GOLD_SYMBOL];
 
-  const cfg = loadRiskCfg();
+  let cfg = loadRiskCfg();
   const m: Model = {
     connected: false,
     accountId: "…",
@@ -988,6 +988,7 @@ async function main(): Promise<void> {
   await bringUp(m.monitorMode);
 
   const refresh = () => {
+    cfg = loadRiskCfg(); // relê config.json (stop/take/etc mudam sem reiniciar o monitor)
     m.logLines = loadLog(60);
     m.learn = loadLearn();
     m.trades = loadTrades();
