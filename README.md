@@ -135,9 +135,15 @@ trades. Panels:
   position markers, open positions with unrealized R and SL/TP, closed-trade history
   with cumulative R, the bandit/ML state, and a tail of `data/bot.log`
 
-Shortcuts: `q` quit · `r` refresh · `a` switch the monitor between demo/real (real
-asks to confirm). `--once` to print one frame. Truecolor terminal recommended
-(Windows Terminal works).
+Shortcuts: `q` quit · `r` refresh (also forces an immediate reconnect if the link is
+down) · `t` toggle the **last-100-trades stats** overlay (win rate, expectancy R,
+profit factor, max drawdown, streaks, breakdown by setup and by bot) · `a` switch the
+monitor between demo/real (real asks to confirm). `--once` to print one frame.
+Truecolor terminal recommended (Windows Terminal works).
+
+If the connection drops, the client keeps retrying with backoff (REST calls have a
+15 s timeout, the socket a 20 s open-timeout) and the monitor runs a 45 s watchdog
+that forces a clean reconnect; the header shows `reconnecting <elapsed>`.
 
 Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with

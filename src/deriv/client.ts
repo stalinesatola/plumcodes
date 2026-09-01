@@ -37,6 +37,7 @@ export class DerivClient extends EventEmitter {
   private reqId = 1;
   private pending = new Map<number, Pending>();
   private pingTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private backoff = 1;
   private closedByUser = false;
 
@@ -82,6 +83,7 @@ export class DerivClient extends EventEmitter {
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15_000), // sem isto, um fetch preso trava a reconexao
     });
     const text = await res.text();
     let json: any = {};
@@ -144,23 +146,53 @@ export class DerivClient extends EventEmitter {
 
   async connect(): Promise<AccountInfo> {
     this.closedByUser = false;
+    // descarta um socket anterior meio-aberto (e os seus listeners) antes de refazer
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        this.ws.terminate();
+      } catch {
+        /* ignore */
+      }
+      this.ws = null;
+    }
     if (!this.account) await this.resolveAccount();
 
     const wsUrl = await this.getOtpUrl();
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
       this.ws = ws;
+      let settled = false;
+      // se o socket nao abrir em 20s (rede caida), rejeita -> agenda nova tentativa
+      const openTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          ws.removeAllListeners();
+          ws.terminate();
+        } catch {
+          /* ignore */
+        }
+        reject(new Error("timeout ao abrir o socket"));
+      }, 20_000);
 
       ws.on("open", async () => {
         log.info("socket aberto (autenticado via OTP)");
+        clearTimeout(openTimeout);
         this.backoff = 1;
         this.startPing();
         try {
           await this.restoreSubscriptions();
           this.emit("open", this.account);
-          resolve(this.account!);
+          if (!settled) {
+            settled = true;
+            resolve(this.account!);
+          }
         } catch (e) {
-          reject(e as Error);
+          if (!settled) {
+            settled = true;
+            reject(e as Error);
+          }
         }
       });
 
@@ -168,9 +200,15 @@ export class DerivClient extends EventEmitter {
 
       ws.on("close", (code) => {
         log.warn(`socket fechado code=${code}`);
+        clearTimeout(openTimeout);
         this.cleanupSocket();
         this.emit("close", code);
-        if (!this.closedByUser) this.scheduleReconnect();
+        if (!settled) {
+          settled = true;
+          reject(new Error(`socket fechou (code=${code}) antes de abrir`));
+        } else if (!this.closedByUser) {
+          this.scheduleReconnect();
+        }
       });
 
       ws.on("error", (err) => log.error("erro no socket", err.message));
@@ -180,6 +218,10 @@ export class DerivClient extends EventEmitter {
   disconnect() {
     this.closedByUser = true;
     this.stopPing();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
   }
 
@@ -193,12 +235,33 @@ export class DerivClient extends EventEmitter {
   }
 
   private scheduleReconnect() {
+    if (this.closedByUser || this.reconnectTimer) return; // um retry de cada vez
     const delay = Math.min(this.backoff, this.maxBackoffSec) * 1000;
     log.info(`reconectando em ${delay / 1000}s (novo OTP)`);
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (this.closedByUser) return;
       this.backoff = Math.min(this.backoff * 2, this.maxBackoffSec);
-      this.connect().catch((e) => log.error("falha ao reconectar", (e as Error).message));
+      try {
+        await this.connect();
+      } catch (e) {
+        log.error("falha ao reconectar", (e as Error).message);
+        this.scheduleReconnect(); // continua tentando ate a rede voltar
+      }
     }, delay);
+  }
+
+  /** Força uma reconexão imediata (ex.: tecla do monitor). Reseta o backoff. */
+  forceReconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.backoff = 1;
+    this.connect().catch((e) => {
+      log.error("falha ao reconectar", (e as Error).message);
+      this.scheduleReconnect();
+    });
   }
 
   private startPing() {

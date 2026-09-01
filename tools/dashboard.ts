@@ -189,7 +189,69 @@ interface Model {
   monitorMode: "demo" | "real";
   confirmReal: boolean;
   priceIdx: number;
+  showStats: boolean; // overlay [t] — estatística dos últimos 100 trades
+  disconnectedSince: number; // ts do início da queda de ligação (0 = ligado)
   err: string;
+}
+
+/** Agrega estatística de uma lista de trades fechados (usado pelo overlay [t]). */
+function tradeStats(cl: ClosedTrade[]) {
+  const n = cl.length;
+  const wins = cl.filter((c) => c.isWin);
+  const losses = cl.filter((c) => !c.isWin);
+  const sumR = cl.reduce((s, c) => s + c.r, 0);
+  const sumProfit = cl.reduce((s, c) => s + c.profit, 0);
+  const grossWin = wins.reduce((s, c) => s + Math.max(0, c.profit), 0);
+  const grossLoss = Math.abs(losses.reduce((s, c) => s + Math.min(0, c.profit), 0));
+  const avgWinR = wins.length ? wins.reduce((s, c) => s + c.r, 0) / wins.length : 0;
+  const avgLossR = losses.length ? losses.reduce((s, c) => s + c.r, 0) / losses.length : 0;
+  // maior sequência e drawdown em R sobre a curva acumulada
+  let peak = 0, cum = 0, maxDD = 0, streak = 0, worstStreak = 0, bestStreak = 0, curW = 0;
+  for (const c of cl) {
+    cum += c.r;
+    peak = Math.max(peak, cum);
+    maxDD = Math.min(maxDD, cum - peak);
+    if (c.isWin) {
+      curW = curW > 0 ? curW + 1 : 1;
+      bestStreak = Math.max(bestStreak, curW);
+    } else {
+      curW = curW < 0 ? curW - 1 : -1;
+      worstStreak = Math.min(worstStreak, curW);
+    }
+    streak = curW;
+  }
+  const byTag = new Map<string, { n: number; w: number; r: number }>();
+  for (const c of cl) {
+    const t = byTag.get(c.tag) ?? { n: 0, w: 0, r: 0 };
+    t.n++; t.w += c.isWin ? 1 : 0; t.r += c.r;
+    byTag.set(c.tag, t);
+  }
+  const byBot = new Map<string, { n: number; w: number; r: number }>();
+  for (const c of cl) {
+    const b = byBot.get(c.botId) ?? { n: 0, w: 0, r: 0 };
+    b.n++; b.w += c.isWin ? 1 : 0; b.r += c.r;
+    byBot.set(c.botId, b);
+  }
+  return {
+    n,
+    winRate: n ? wins.length / n : 0,
+    sumR,
+    expectancyR: n ? sumR / n : 0,
+    sumProfit,
+    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
+    avgWinR,
+    avgLossR,
+    maxDD,
+    bestStreak,
+    worstStreak: Math.abs(worstStreak),
+    curStreak: streak,
+    best: cl.reduce((a, c) => (c.r > (a?.r ?? -Infinity) ? c : a), null as ClosedTrade | null),
+    worst: cl.reduce((a, c) => (c.r < (a?.r ?? Infinity) ? c : a), null as ClosedTrade | null),
+    firstTs: n ? cl[0]!.ts : 0,
+    lastTs: n ? cl[n - 1]!.ts : 0,
+    byTag: [...byTag.entries()].sort((a, b) => b[1].r - a[1].r),
+    byBot: [...byBot.entries()].sort((a, b) => b[1].r - a[1].r),
+  };
 }
 
 function loadSession(): any {
@@ -349,7 +411,12 @@ function render(m: Model, cfg: any): void {
 
   // header
   const clock = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
-  const conn = m.connected ? T.green + "● connected" : m.err ? T.red + "● " + m.err : T.yellow + "● connecting";
+  const downFor = m.disconnectedSince ? fmtShort(Date.now() - m.disconnectedSince) : "";
+  const conn = m.connected
+    ? T.green + "● connected"
+    : m.err
+      ? T.red + "● " + m.err + (downFor ? ` (${downFor})` : "")
+      : T.yellow + "● reconnecting" + (downFor ? ` ${downFor}` : "") + `${T.dim} · [r] agora`;
   const head = `${T.cyan}${BOLD}deriv quant research${RESET}${T.dim} · monitor${RESET}   ${conn}${RESET}${T.dim}   up ${humanDur(Date.now() - m.startedAt)}   ${clock}${RESET}`;
   buf.push(at(1, 2) + pad(clip(head, W - 3), W - 3));
 
@@ -610,10 +677,61 @@ function render(m: Model, cfg: any): void {
     : `${T.dim}mercado …`;
   const foot = m.confirmReal
     ? `${bgRed}${T.text} conectar à CONTA REAL? [s] sim  [n] não ${RESET}`
-    : `${T.dim}[q] sair   [r] atualizar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+    : m.showStats
+      ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
+      : `${T.dim}[q] sair   [r] reconectar/atualizar   [t] stats 100   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
+  if (m.showStats) renderStats(m, W, H, buf);
+
   out(buf.join(""));
+}
+
+/** Overlay [t] — painel central com a estatística dos últimos 100 trades fechados. */
+function renderStats(m: Model, W: number, H: number, buf: string[]): void {
+  const cl = m.trades.closed.slice(-100);
+  const bw = Math.min(84, W - 6);
+  const bh = Math.min(30, H - 4);
+  const bx = Math.floor((W - bw) / 2) + 1;
+  const by = Math.floor((H - bh) / 2) + 1;
+  const r: Rect = { x: bx, y: by, w: bw, h: bh };
+  // fundo opaco
+  for (let i = 0; i < bh; i++) buf.push(at(by + i, bx) + " ".repeat(bw));
+  buf.push(...box(r, ` últimos ${cl.length} trades `, T.mag));
+  if (cl.length === 0) {
+    buf.push(put(r, 0, 0, `${T.dim}nenhum trade fechado ainda (data/trades.jsonl vazio)${RESET}`));
+    return;
+  }
+  const s = tradeStats(cl);
+  const per = (x: number) => `${(x * 100).toFixed(1)}%`;
+  const sr = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}R`;
+  const col = (x: number) => (x >= 0 ? T.green : T.red);
+  const span = `${new Date(s.firstTs).toISOString().slice(5, 16)} → ${new Date(s.lastTs).toISOString().slice(5, 16)} UTC`;
+  let y = 0;
+  buf.push(put(r, y++, 0, `${T.dim}período  ${T.text}${span}${RESET}`));
+  y++;
+  const L = (label: string, val: string) => put(r, y++, 0, `${T.dim}${pad(label, 22)}${RESET}${val}`);
+  buf.push(L("win rate", `${T.text}${per(s.winRate)}${T.dim}  (${cl.filter((c) => c.isWin).length}W / ${cl.filter((c) => !c.isWin).length}L)${RESET}`));
+  buf.push(L("total", `${col(s.sumR)}${sr(s.sumR)}${RESET}${T.dim}  ·  ${col(s.sumProfit)}${s.sumProfit >= 0 ? "+" : ""}${s.sumProfit.toFixed(2)} USD${RESET}`));
+  buf.push(L("expectancy / trade", `${col(s.expectancyR)}${sr(s.expectancyR)}${RESET}`));
+  buf.push(L("profit factor", `${col(s.profitFactor - 1)}${s.profitFactor === Infinity ? "∞" : s.profitFactor.toFixed(2)}${RESET}`));
+  buf.push(L("média ganho / perda", `${T.green}${sr(s.avgWinR)}${RESET}${T.dim} / ${RESET}${T.red}${sr(s.avgLossR)}${RESET}`));
+  buf.push(L("max drawdown", `${T.red}${s.maxDD.toFixed(2)}R${RESET}`));
+  buf.push(L("melhor / pior seq.", `${T.green}${s.bestStreak}W${RESET}${T.dim} / ${RESET}${T.red}${s.worstStreak}L${RESET}${T.dim}  (agora ${s.curStreak >= 0 ? s.curStreak + "W" : -s.curStreak + "L"})${RESET}`));
+  if (s.best && s.worst) {
+    buf.push(L("melhor / pior trade", `${T.green}${sr(s.best.r)} ${s.best.tag}${RESET}${T.dim} / ${RESET}${T.red}${sr(s.worst.r)} ${s.worst.tag}${RESET}`));
+  }
+  y++;
+  buf.push(put(r, y++, 0, `${T.title}por setup${RESET}`));
+  for (const [tag, t] of s.byTag.slice(0, 5)) {
+    buf.push(put(r, y++, 0, `${T.dim}${pad(tag, 16)}${RESET}${pad(`${t.n}t`, 6)}${T.dim}${pad(per(t.w / t.n), 8)}${RESET}${col(t.r)}${sr(t.r)}${RESET}`));
+  }
+  y++;
+  buf.push(put(r, y++, 0, `${T.title}por bot${RESET}`));
+  for (const [bot, t] of s.byBot.slice(0, 5)) {
+    if (y >= r.h - 2) break;
+    buf.push(put(r, y++, 0, `${T.dim}${pad(bot, 16)}${RESET}${pad(`${t.n}t`, 6)}${T.dim}${pad(per(t.w / t.n), 8)}${RESET}${col(t.r)}${sr(t.r)}${RESET}`));
+  }
 }
 
 // ------------------------------------------------------------------ main
@@ -646,10 +764,13 @@ async function main(): Promise<void> {
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
     confirmReal: false,
     priceIdx: 0,
+    showStats: false,
+    disconnectedSince: 0,
     err: "",
   };
 
   if (demo) {
+    if (args.includes("--stats")) m.showStats = true; // p/ pré-visualizar o overlay [t]
     const now = Date.now();
     m.connected = true;
     m.startedAt = now - 34 * 60000;
@@ -851,9 +972,19 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  let lastForce = 0;
   const timer = setInterval(async () => {
     refresh();
-    if (++mktTick % 180 === 0) await fetchSchedules();
+    // rastreia há quanto tempo a ligação está caída
+    if (m.connected) m.disconnectedSince = 0;
+    else if (!m.disconnectedSince) m.disconnectedSince = Date.now();
+    // watchdog: sem ligação há > 45s -> força uma reconexão limpa (a cada 45s)
+    if (!m.connected && process.env.DERIV_TOKEN && Date.now() - lastForce > 45_000) {
+      lastForce = Date.now();
+      if (client) client.forceReconnect();
+      else void bringUp(m.monitorMode);
+    }
+    if (m.connected && ++mktTick % 180 === 0) await fetchSchedules();
     render(m, cfg);
   }, 1000);
   void timer;
@@ -880,9 +1011,18 @@ async function main(): Promise<void> {
           m.confirmReal = false;
           render(m, cfg);
         }
+      } else if (key === "t") {
+        m.showStats = !m.showStats;
+        out(`${ESC}2J`);
+        render(m, cfg);
       } else if (key === "r") {
         out(`${ESC}2J`);
         refresh();
+        if (!m.connected) {
+          lastForce = Date.now();
+          if (client) client.forceReconnect();
+          else void bringUp(m.monitorMode);
+        }
         render(m, cfg);
       } else if (key === "a") {
         if (m.monitorMode === "real") {
