@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário.",
+  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário. STAKE = 5% da banca por trade (stake.pctOfBalance); o risco real (slUsd) flutua com a distância do stop e nunca passa do stake. Teto de segurança: um stake nunca passa de 20% do saldo.",
 
   "account": {
     "mode": "demo",
@@ -75,7 +75,7 @@
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 1, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
         "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
         "stopAtrMult": 1.0, "tradeStart": 21, "tradeEnd": 6, "multiplier": 100, "rr": 1.5
@@ -94,7 +94,7 @@
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 1, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 1, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
         "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
         "stopAtrMult": 1.0, "tradeStart": 0, "tradeEnd": 9, "multiplier": 100, "rr": 1.5
@@ -113,7 +113,7 @@
       "strategy": "gold_ny_momo",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
         "tradeStart": 6, "tradeEnd": 14, "forceMult": 1.2, "stopAtrMult": 1.0,
         "multiplier": 100, "rr": 1.5
@@ -132,7 +132,7 @@
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
         "bbPeriod": 20, "bbK": 1.8, "rsiPeriod": 14, "rsiOb": 66, "rsiOs": 34,
         "stopAtrMult": 1.0, "tradeStart": 7, "tradeEnd": 16, "multiplier": 100, "rr": 1.5
@@ -151,7 +151,7 @@
       "strategy": "gold_ny_momo",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
       "params": {
         "tradeStart": 12, "tradeEnd": 21, "forceMult": 1.1, "stopAtrMult": 1.0,
         "multiplier": 100, "rr": 1.5

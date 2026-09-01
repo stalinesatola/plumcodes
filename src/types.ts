@@ -65,6 +65,10 @@ export interface BotConfig {
   durationTicks: number;
   stake: {
     base: number;
+    /** [Opcional] se definido, o stake e ESTE % do saldo atual (nao o `base` fixo).
+     *  Ex.: 5 = aposta 5% da banca a cada trade; o risco (slUsd) passa a flutuar
+     *  com a distancia do stop em vez de ser fixo. */
+    pctOfBalance?: number;
     martingale: { enabled: boolean; factor: number; maxSteps: number };
   };
   params: Record<string, number>;

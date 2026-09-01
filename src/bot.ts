@@ -172,13 +172,15 @@ export class Bot {
   }
 
   private baseStake(): number {
-    const { base, martingale } = this.cfg.stake;
-    let s = base;
+    const { base, pctOfBalance, martingale } = this.cfg.stake;
+    let s = pctOfBalance ? (this.risk.balance * pctOfBalance) / 100 : base;
     if (martingale.enabled && this.martingaleStep > 0) {
-      s = base * Math.pow(martingale.factor, this.martingaleStep);
+      s *= Math.pow(martingale.factor, this.martingaleStep);
     }
     s *= this.learner.stakeScale(this.id);
-    return Math.max(0.35, Number(s.toFixed(2)));
+    // teto de segurança: um único stake nunca passa de 20% do saldo
+    const cap = Math.max(1, this.risk.balance * 0.2);
+    return Math.max(0.35, Math.min(cap, Number(s.toFixed(2))));
   }
 
   private ctx(candleClosed: boolean): StrategyContext {
@@ -316,22 +318,31 @@ export class Bot {
       let slUsd = 0;
       if (isMultiplier) {
         const price = this.prices[this.prices.length - 1] ?? 0;
-        const riskPct = this.cfg.riskPerTradePct ?? 1;
-        const riskBudget = Math.max(0.35, (this.risk.balance * riskPct) / 100);
         // fracao do stake perdida se o preco andar ate o swing
         const stopFraction =
           intent.stopDistance && price > 0 ? (intent.multiplier! * intent.stopDistance) / price : 1;
-        if (stopFraction >= 1) {
-          // swing alem do ponto de auto-fecho: risco = o proprio stake
-          stake = Math.min(50, Math.max(1, Number(riskBudget.toFixed(2))));
-          slUsd = Number((stake * 0.95).toFixed(2));
-        } else {
-          // dimensiona o stake para a perda no swing bater no orcamento de risco
-          stake = Math.min(50, Math.max(1, Number((riskBudget / stopFraction).toFixed(2))));
+
+        if (this.cfg.stake.pctOfBalance) {
+          // STAKE = % da banca (ja calculado em baseStake). O risco (slUsd) flutua
+          // com a distancia do stop, limitado a <= stake (regra da Deriv).
           slUsd = Math.min(
             Number((stake * 0.95).toFixed(2)),
-            Math.max(0.1, Number((stake * stopFraction).toFixed(2))),
+            Math.max(0.1, Number((stake * Math.min(1, stopFraction)).toFixed(2))),
           );
+        } else {
+          // modo classico: RISCO fixo (riskPerTradePct% do saldo), stake flutua
+          const riskPct = this.cfg.riskPerTradePct ?? 1;
+          const riskBudget = Math.max(0.35, (this.risk.balance * riskPct) / 100);
+          if (stopFraction >= 1) {
+            stake = Math.min(50, Math.max(1, Number(riskBudget.toFixed(2))));
+            slUsd = Number((stake * 0.95).toFixed(2));
+          } else {
+            stake = Math.min(50, Math.max(1, Number((riskBudget / stopFraction).toFixed(2))));
+            slUsd = Math.min(
+              Number((stake * 0.95).toFixed(2)),
+              Math.max(0.1, Number((stake * stopFraction).toFixed(2))),
+            );
+          }
         }
         const tpUsd = Number((slUsd * (intent.rr ?? 2)).toFixed(2));
         limitOrder = { stop_loss: slUsd, take_profit: tpUsd };
