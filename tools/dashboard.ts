@@ -376,6 +376,11 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
     }
     for (const [id, o] of opens) {
       if (closedIds.has(id)) continue;
+      // ignora "abertos" órfãos: símbolo que não operamos mais (índices antigos) ou
+      // idade absurda (> 6h; o maxHoldMinutes de qualquer bot é ≤ 45min, então um
+      // "open" sem "close" tão velho é lixo de um restart/queda de ligação).
+      if (o.symbol && o.symbol !== GOLD_SYMBOL) continue;
+      if (Date.now() - o.ts > 6 * 3600_000) continue;
       open.push({
         botId: o.botId,
         tag: o.tag,
