@@ -62,6 +62,15 @@ export interface BotConfig {
   daily?: { maxWins?: number; maxLosses?: number; maxTrades?: number };
   /** [Opcional] fecha posicao de multiplicador aberta ha mais de N minutos. */
   maxHoldMinutes?: number;
+  /** [Opcional] gestao dinamica do stop de multiplicadores quando o trade ja tem lucro:
+   *  - breakEvenAtR: ao atingir +N R nao-realizado, aperta o stop_loss ate ~break-even
+   *  - trailAfterR / trailGapR: depois de +trailAfterR R, vende a mercado se o lucro
+   *    recuar trailGapR R abaixo do pico (trailing manual — trava lucro real). */
+  manageStop?: {
+    breakEvenAtR?: number;
+    trailAfterR?: number;
+    trailGapR?: number;
+  };
 }
 
 export type ContractType =

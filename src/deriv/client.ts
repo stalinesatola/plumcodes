@@ -543,6 +543,18 @@ export class DerivClient extends EventEmitter {
     await this.send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
   }
 
+  /** Ajusta o stop_loss / take_profit (USD) de um multiplicador aberto.
+   *  `null` cancela a ordem correspondente. */
+  async updateContract(
+    contractId: number,
+    orders: { stopLoss?: number | null; takeProfit?: number | null },
+  ): Promise<void> {
+    const limit_order: Record<string, number | null> = {};
+    if (orders.stopLoss !== undefined) limit_order.stop_loss = orders.stopLoss;
+    if (orders.takeProfit !== undefined) limit_order.take_profit = orders.takeProfit;
+    await this.send({ contract_update: 1, contract_id: contractId, limit_order });
+  }
+
   untrackContract(contractId: number) {
     this.contractSubs.delete(contractId);
   }

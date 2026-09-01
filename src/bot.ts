@@ -18,7 +18,13 @@ interface OpenMeta {
   stake: number;
   isMultiplier: boolean;
   openedAtMs: number;
-  slUsd: number;
+  slUsd: number; // risco inicial em USD = 1R
+  entry: number; // preco de entrada (0 = desconhecido, ex.: contrato adotado)
+  dir: "up" | "down";
+  stopDist: number; // distancia de preco ate o stop inicial
+  multiplier: number;
+  beDone: boolean; // stop ja movido para break-even
+  peakR: number; // melhor R nao-realizado ja visto (para o trailing)
 }
 
 export class Bot {
@@ -48,6 +54,7 @@ export class Bot {
   private stopped = false;
   private lastTradeEpoch = 0;
   private busy = false;
+  private closing = false; // venda a mercado em curso (trailing / maxHold)
 
   // limites diarios de scalping
   private dayKey = "";
@@ -150,14 +157,21 @@ export class Bot {
 
     this.rollDay();
 
-    // gestao de posicao de multiplicador aberta (tempo maximo)
-    if (this.openMeta?.isMultiplier && this.cfg.maxHoldMinutes && candleClosed) {
-      const heldMin = (Date.now() - this.openMeta.openedAtMs) / 60000;
-      if (heldMin >= this.cfg.maxHoldMinutes && this.currentContractId !== null) {
-        this.log.info(`hold ${heldMin.toFixed(1)}min >= ${this.cfg.maxHoldMinutes} -> vender`);
-        void this.client.sellContract(this.currentContractId).catch((e) =>
-          this.log.error("sell falhou", (e as Error).message),
-        );
+    // gestao de posicao de multiplicador aberta
+    if (this.openMeta?.isMultiplier && this.currentContractId !== null && !this.closing) {
+      // trailing / break-even quando ja tem lucro
+      this.manageOpenPosition(quote);
+      // tempo maximo de permanencia
+      if (this.cfg.maxHoldMinutes && candleClosed) {
+        const heldMin = (Date.now() - this.openMeta.openedAtMs) / 60000;
+        if (heldMin >= this.cfg.maxHoldMinutes) {
+          this.closing = true;
+          this.log.info(`hold ${heldMin.toFixed(1)}min >= ${this.cfg.maxHoldMinutes} -> vender`);
+          void this.client.sellContract(this.currentContractId).catch((e) => {
+            this.closing = false;
+            this.log.error("sell falhou", (e as Error).message);
+          });
+        }
       }
     }
 
@@ -177,6 +191,51 @@ export class Bot {
 
     this.lastTradeEpoch = epoch;
     void this.enter(intent);
+  }
+
+  /** Gestao dinamica do stop de um multiplicador com lucro:
+   *  1) ao atingir +breakEvenAtR, aperta o stop_loss da Deriv ate ~break-even (uma vez)
+   *  2) depois de +trailAfterR, vende a mercado se o lucro recuar trailGapR abaixo do pico */
+  private manageOpenPosition(quote: number): void {
+    const m = this.openMeta;
+    const ms = this.cfg.manageStop;
+    if (!m || !ms || this.currentContractId === null || this.closing) return;
+    if (m.entry <= 0 || m.stopDist <= 0 || m.multiplier <= 0 || m.slUsd <= 0) return; // ex.: adotado
+
+    // P/L nao-realizado ~ stake * multiplicador * variacao% na direcao do trade
+    const move = ((quote - m.entry) / m.entry) * (m.dir === "up" ? 1 : -1);
+    const uR = (m.stake * m.multiplier * move) / m.slUsd;
+    if (uR > m.peakR) m.peakR = uR;
+
+    if (!m.beDone && ms.breakEvenAtR && uR >= ms.breakEvenAtR) {
+      m.beDone = true;
+      const beStop = Math.max(0.1, Number((m.stake * 0.02).toFixed(2))); // ~comissao do round-trip
+      const cid = this.currentContractId;
+      this.log.info(`+${uR.toFixed(2)}R → stop para break-even (SL ${beStop})`);
+      void this.client
+        .updateContract(cid, { stopLoss: beStop })
+        .then(() =>
+          journal({ ev: "adjust", ts: Date.now(), botId: this.id, contractId: cid, slPrice: m.entry, note: `break-even @ +${uR.toFixed(1)}R` }),
+        )
+        .catch((e) => {
+          // nao repete (evita spam a cada tick) — o trailing manual ainda protege
+          this.log.warn(`updateContract falhou, mantendo SL original: ${(e as Error).message}`);
+        });
+    }
+
+    if (
+      ms.trailAfterR &&
+      ms.trailGapR &&
+      m.peakR >= ms.trailAfterR &&
+      uR <= m.peakR - ms.trailGapR
+    ) {
+      this.closing = true;
+      this.log.info(`trailing: pico +${m.peakR.toFixed(2)}R, agora +${uR.toFixed(2)}R → vender`);
+      void this.client.sellContract(this.currentContractId).catch((e) => {
+        this.closing = false;
+        this.log.error("sell (trailing) falhou", (e as Error).message);
+      });
+    }
   }
 
   private async enter(intent: TradeIntent) {
@@ -261,6 +320,12 @@ export class Bot {
         isMultiplier,
         openedAtMs: Date.now(),
         slUsd: slUsd || stake,
+        entry: this.prices[this.prices.length - 1] ?? Number(buy.buyPrice) ?? 0,
+        dir: intent.contractType === "MULTUP" || intent.contractType === "CALL" ? "up" : "down",
+        stopDist: intent.stopDistance ?? 0,
+        multiplier: intent.multiplier ?? 0,
+        beDone: false,
+        peakR: 0,
       };
       this.dayTrades++;
       this.log.info(
@@ -333,6 +398,7 @@ export class Bot {
     this.risk.notifyClosed();
     this.currentContractId = null;
     this.openMeta = null;
+    this.closing = false;
     this.realizedPnl += profit;
     if (isWin) {
       this.wins++;
@@ -411,6 +477,12 @@ export class Bot {
       isMultiplier,
       openedAtMs: (Number(c.dateStart) || Math.floor(Date.now() / 1000)) * 1000,
       slUsd: stake,
+      entry: 0, // desconhecido -> gestao dinamica de stop fica desligada p/ adotados
+      dir: /UP|CALL|LONG/i.test(c.contractType ?? "") ? "up" : "down",
+      stopDist: 0,
+      multiplier: 0,
+      beDone: false,
+      peakR: 0,
     };
     this.risk.notifyOpen();
     this.log.info(`adotou contrato aberto ${c.contractId} (${c.contractType ?? "?"})`);

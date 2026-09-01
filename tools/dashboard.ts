@@ -333,6 +333,7 @@ interface OpenPos {
   slPrice: number;
   tpPrice: number;
   ts: number;
+  slNote?: string; // ex.: "break-even @ +1.0R" quando o stop foi movido
 }
 interface ClosedTrade {
   ts: number;
@@ -361,7 +362,13 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
         continue;
       }
       if (e.ev === "open") opens.set(e.contractId, e);
-      else if (e.ev === "close") {
+      else if (e.ev === "adjust") {
+        const o = opens.get(e.contractId);
+        if (o) {
+          o.slPrice = e.slPrice;
+          o.slNote = e.note;
+        }
+      } else if (e.ev === "close") {
         closedIds.add(e.contractId);
         const o = opens.get(e.contractId);
         closed.push({
@@ -393,6 +400,7 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
         slPrice: o.slPrice,
         tpPrice: o.tpPrice,
         ts: o.ts,
+        slNote: o.slNote,
       });
     }
   } catch {
@@ -598,7 +606,7 @@ function render(m: Model, cfg: any): void {
           0,
           `${dcol}${pad(o.dir === "up" ? "LONG" : "SHORT", 7)}${RESET}${T.text}${pad(o.entry.toFixed(dec), 11)}${RESET}` +
             `${rcol}${pad(`${uR >= 0 ? "+" : ""}${uR.toFixed(2)}R`, 13)}${RESET}` +
-            `${T.dim}${pad(o.slPrice.toFixed(dec), 10)}${pad(o.tpPrice.toFixed(dec), 10)}${age}${RESET}`,
+            `${o.slNote ? T.green : T.dim}${pad(o.slPrice.toFixed(dec) + (o.slNote ? " ⇡" : ""), 10)}${T.dim}${pad(o.tpPrice.toFixed(dec), 10)}${age}${RESET}`,
         ),
       );
     });
@@ -829,9 +837,10 @@ async function main(): Promise<void> {
           dir: "up",
           entry: ser[ser.length - 40]!,
           stopDist: 5.6,
-          slPrice: ser[ser.length - 40]! - 5.6,
+          slPrice: ser[ser.length - 40]!,
           tpPrice: ser[ser.length - 40]! + 8.4,
           ts: now - 640_000,
+          slNote: "break-even @ +1.0R",
         },
       ],
       closed: [

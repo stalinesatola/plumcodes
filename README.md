@@ -59,7 +59,9 @@ src/
   ml/bridge.ts        spawns the Python sidecar, line-delimited JSON protocol, graceful
                       fallback if Python is absent
   bot.ts              one bot = one strategy + one symbol; 3 gates before an order
-                      (bandit → ML → risk); martingale, per-bot SL/TP, daily caps
+                      (bandit → ML → risk); martingale, per-bot SL/TP, daily caps,
+                      and — once a multiplier is in profit — a break-even stop move
+                      (Deriv contract_update) plus a manual trailing exit
   strategies/index.ts the Strategy interface + registry (currently: Gold research
                       strategies; synthetic-index strategies archived)
   util/               indicators (SMA/EMA/RSI/Stochastic/fractal swings), candle

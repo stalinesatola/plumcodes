@@ -69,6 +69,7 @@
       "riskPerTradePct": 0.5,
       "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
+      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 15,
       "botTakeProfitUsd": 25
     },
@@ -87,6 +88,7 @@
       "riskPerTradePct": 0.5,
       "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
+      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 15,
       "botTakeProfitUsd": 25
     },
@@ -105,6 +107,7 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
+      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35
     },
@@ -123,6 +126,7 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 45,
+      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35
     },
@@ -141,6 +145,7 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
+      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35
     }

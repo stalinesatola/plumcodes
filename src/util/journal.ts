@@ -29,6 +29,14 @@ export type TradeEvent =
       isWin: boolean;
       rMultiple: number;
       balanceAfter: number;
+    }
+  | {
+      ev: "adjust";
+      ts: number;
+      botId: string;
+      contractId: number;
+      slPrice: number; // novo stop (preço)
+      note: string; // ex.: "break-even @ +1.0R"
     };
 
 export function journal(e: TradeEvent): void {
