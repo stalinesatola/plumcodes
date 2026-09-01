@@ -170,7 +170,10 @@ The monitor's **sessions** panel shows those five centres as a live clock — op
 closed / opens-in, with the London+NY overlap flagged as the peak-volatility window.
 Nothing but XAUUSD is ever traded; the sessions are just the schedule.
 
-24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`.
+24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`. Run exactly one
+instance — several bot processes against the same account corrupt the shared learning
+state. `tools/clean-restart.ps1` stops everything, archives `data/learn-state.json` +
+`data/trades.jsonl`, and brings up a single instance.
 
 ### Telegram alerts
 

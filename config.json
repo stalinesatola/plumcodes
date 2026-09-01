@@ -30,7 +30,8 @@
   },
 
   "ml": {
-    "enabled": true,
+    "//": "DESLIGADO 2026-09-01 temporariamente: o predictor.py em si esta OK (responde ping/predict, salva model.json), mas estava em loop de crash porque HAVIA 3 processos do bot rodando juntos (2 zumbis) e cada pm2 restart matava os filhos python (code=3221225786 = Ctrl+C do grupo). Religar (enabled:true) depois de garantir 1 so instancia via pm2.",
+    "enabled": false,
     "pythonPath": "python",
     "scriptPath": "ml/predictor.py",
     "minEdge": 0.0
