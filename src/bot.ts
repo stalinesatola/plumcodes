@@ -168,13 +168,11 @@ export class Bot {
 
   seedCandles(candles: Candle[]) {
     this.candles?.seed(candles);
-    if (this.candles && this.cfg.regimeAdx) {
+    if (this.candles && this.candles.closed.length > 40) {
       const m15 = resample(this.candles.closed, 900);
-      this.adxM15 = adx(m15, this.cfg.regimeAdx.period ?? 14);
-      this.log.info(`seed ${candles.length} candles M1 · ADX(M15)=${this.adxM15?.toFixed(1) ?? "—"}`);
-    } else {
-      this.log.info(`seed ${candles.length} candles M1`);
+      this.adxM15 = adx(m15, this.cfg.regimeAdx?.period ?? 14);
     }
+    this.log.info(`seed ${candles.length} candles M1${this.adxM15 != null ? ` · ADX(M15)=${this.adxM15.toFixed(1)}` : ""}`);
   }
 
   /** Semeia o histórico H1 usado pelo filtro de estrutura diária. */
@@ -257,10 +255,10 @@ export class Bot {
     let candleClosed = false;
     if (this.candles) candleClosed = this.candles.add(quote, epoch) !== null;
 
-    // regime: recalcula o ADX(M15) a cada vela M1 fechada
-    if (candleClosed && this.candles && this.cfg.regimeAdx) {
+    // ADX(M15) — recalculado a cada vela M1 fechada (só informativo se regimeAdx ausente)
+    if (candleClosed && this.candles && this.candles.closed.length > 40) {
       const m15 = resample(this.candles.closed, 900);
-      this.adxM15 = adx(m15, this.cfg.regimeAdx.period ?? 14);
+      this.adxM15 = adx(m15, this.cfg.regimeAdx?.period ?? 14);
     }
 
     // estrutura diária: recalcula a cada barra H1 fechada

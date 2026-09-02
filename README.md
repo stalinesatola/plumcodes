@@ -171,15 +171,17 @@ Open positions and history come from `data/trades.jsonl` (written by the bot);
 session balances from `data/session.json`. Regenerate the image with
 `node tools/render-svg.ts docs/dashboard.svg` (uses synthetic `--demo` data).
 
-`config.json` trades **only Gold / USD** (`frxXAUUSD`, Multipliers) with six setups on
-the one pair, all running **24/7** — three Bollinger + RSI mean-reversion bots
+`config.json` trades **only Gold / USD** (`frxXAUUSD`, Multipliers) with six independent
+setups on the one pair, all running **24/7** — three Bollinger + RSI mean-reversion bots
 (`xau-sydney`, `xau-tokyo`, `xau-london`), two candle-momentum bots (`xau-frankfurt`,
-`xau-newyork`), and a trend-pullback scalp (`xau-scalp`). What decides when each one
-actually trades is not a clock but the filters: the per-bot **ADX(M15) regime** gate,
-the shared **daily-structure** gate, and the monitor's **`b`** overlay (enable/disable
-each bot live). There is no auto-park on profit and no daily trade cap — the only
-per-bot circuit breaker is `botStopLossUsd` (a soft one you can clear from `b`); the
-account-wide guards are the 15 % daily stop, the loss-streak pause, and the hard floor.
+`xau-newyork`), and a trend-pullback scalp (`xau-scalp`). Each bot runs its own strategy
+logic with no shared regime gate; the only shared filter still on is the **daily
+structure** one (`structure.enabled`, itself easy to turn off), and the monitor's
+**`b`** overlay enables/disables each bot live. There is no auto-park on profit and no
+daily trade cap — the only per-bot circuit breaker is `botStopLossUsd` (a soft one you
+can clear from `b`); the account-wide guards are the 15 % daily stop, the loss-streak
+pause, and the hard floor. `regimeAdx` is still supported per bot if you want to add it
+back; the monitor shows the current ADX(M15) either way.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`. Run exactly one
 instance — several bot processes against the same account corrupt the shared learning

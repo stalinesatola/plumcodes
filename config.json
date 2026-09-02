@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so Gold/USD (frxXAUUSD). Todos os 6 bots rodam 24/7 (sem janela de sessao). Quem controla o que opera: (1) o filtro de regime ADX(M15) por bot, (2) o filtro de estrutura diaria, (3) a tecla [b] no monitor (liga/desliga cada bot ao vivo). Sem auto-PARADO no lucro; o unico circuit breaker por bot e botStopLossUsd 500 (~4 perdas cheias). Risco global: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5.",
+  "//": "FOCO: so Gold/USD (frxXAUUSD). 6 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica sem filtro de regime partilhado. Reversao a media: xau-sydney/tokyo/london (Bollinger+RSI). Momentum: xau-frankfurt/newyork (corpo de vela >= forceMult*ATR). Scalp: xau-scalp (EMA50 + Estocastico + Bollinger + rejeicao). Unico filtro partilhado que resta: estrutura diaria (structure.enabled) — pode desligar tambem se quiser bots 100% independentes. Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, botStopLossUsd 500 por bot.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -95,10 +95,6 @@
       },
       "riskPerTradePct": 0.5,
       "maxHoldMinutes": 45,
-      "regimeAdx": {
-        "period": 14,
-        "max": 22
-      },
       "minMinutesBetweenTrades": 20,
       "manageStop": {
         "breakEvenAtR": 1,
@@ -137,10 +133,6 @@
       },
       "riskPerTradePct": 0.5,
       "maxHoldMinutes": 45,
-      "regimeAdx": {
-        "period": 14,
-        "max": 22
-      },
       "minMinutesBetweenTrades": 20,
       "manageStop": {
         "breakEvenAtR": 1,
@@ -175,10 +167,6 @@
       },
       "riskPerTradePct": 1,
       "maxHoldMinutes": 30,
-      "regimeAdx": {
-        "period": 14,
-        "min": 25
-      },
       "minMinutesBetweenTrades": 20,
       "manageStop": {
         "breakEvenAtR": 1,
@@ -217,10 +205,6 @@
       },
       "riskPerTradePct": 1,
       "maxHoldMinutes": 45,
-      "regimeAdx": {
-        "period": 14,
-        "max": 22
-      },
       "minMinutesBetweenTrades": 20,
       "manageStop": {
         "breakEvenAtR": 1,
@@ -255,10 +239,6 @@
       },
       "riskPerTradePct": 1,
       "maxHoldMinutes": 30,
-      "regimeAdx": {
-        "period": 14,
-        "min": 25
-      },
       "minMinutesBetweenTrades": 20,
       "manageStop": {
         "breakEvenAtR": 1,
@@ -302,10 +282,6 @@
       },
       "riskPerTradePct": 1,
       "maxHoldMinutes": 15,
-      "regimeAdx": {
-        "period": 14,
-        "min": 18
-      },
       "minMinutesBetweenTrades": 10,
       "manageStop": {
         "breakEvenAtR": 0.8,
