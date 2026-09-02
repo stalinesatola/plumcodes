@@ -18,7 +18,7 @@ import {
 import { createLogger } from "./util/logger.ts";
 import { journal } from "./util/journal.ts";
 import { loadBotDay, saveBotDay } from "./util/botstate.ts";
-import { botEnabled } from "./util/controls.ts";
+import { botEnabled, resumeRequestedAt } from "./util/controls.ts";
 import { tgTradeOpen, tgTradeClose, tgRisk } from "./util/telegram.ts";
 
 interface OpenMeta {
@@ -57,6 +57,7 @@ export class Bot {
   private adxM15: number | null = null; // regime (força da tendência) — filtro do AURUM
   private lastEntryMs = 0; // cooldown entre entradas do mesmo bot
   private riskCfg: AppConfig["risk"] | null = null;
+  private resumeSeen = 0; // ts do último "resume" do monitor ([b]) já aplicado
 
   // filtro de estrutura diaria (zonas H1 + vies) — compartilhado por todos os bots
   private h1: CandleAggregator | null = null;
@@ -125,8 +126,9 @@ export class Bot {
     this.restoreDayState();
   }
 
-  /** Retoma o estado do dia (contadores, P/L, `stopped`) de um restart no mesmo
-   *  dia UTC — para reiniciar não zerar a disciplina diária. */
+  /** Retoma os CONTADORES do dia (W/L/trades, P/L, cooldown) de um restart no
+   *  mesmo dia UTC. NÃO retoma `stopped` — o bot re-avalia os breakers no próximo
+   *  fecho e o controlo passa a ser a tecla [b] do monitor. */
   private restoreDayState() {
     const s = loadBotDay(this.id);
     if (!s) return;
@@ -136,13 +138,8 @@ export class Bot {
     this.dayTrades = s.dayTrades;
     this.realizedPnl = s.realizedPnl;
     this.lastEntryMs = s.lastEntryMs ?? 0;
-    if (s.stopped) {
-      this.stopped = true;
-      this.stopReason = s.stopReason;
-    }
     this.log.info(
-      `estado do dia retomado: ${s.dayWins}W/${s.dayLosses}L/${s.dayTrades}t pnl $${s.realizedPnl.toFixed(2)}` +
-        (s.stopped ? ` — PARADO (${s.stopReason})` : ""),
+      `contadores do dia retomados: ${s.dayWins}W/${s.dayLosses}L/${s.dayTrades}t pnl $${s.realizedPnl.toFixed(2)}`,
     );
   }
 
@@ -291,8 +288,21 @@ export class Bot {
       }
     }
 
+    // liga/desliga em tempo real pelo monitor ([b]). Cada "ligar" no [b] pede um
+    // resume: tira o bot de qualquer PARADO de disciplina diária — o [b] é o controlo.
+    const resumeTs = resumeRequestedAt(this.id);
+    if (resumeTs > this.resumeSeen) {
+      this.resumeSeen = resumeTs;
+      if (this.stopped && /^(daily|bot (take-profit|stop-loss))/.test(this.stopReason)) {
+        this.stopped = false;
+        this.stopReason = "";
+        this.log.info("religado pelo monitor ([b]) — PARADO removido");
+        this.persistDayState();
+      }
+    }
+    if (!botEnabled(this.id)) return;
+
     if (this.stopped || this.busy || this.currentContractId !== null) return;
-    if (!botEnabled(this.id)) return; // desligado em tempo real pelo monitor ([b])
     if (this.strat.kind !== "candle" && this.prices.length < this.strat.warmup) return;
     if (epoch === this.lastTradeEpoch) return;
 
@@ -622,9 +632,9 @@ export class Bot {
 
     const cap = this.dailyCapHit();
     if (cap) this.stop(cap);
-    else if (this.realizedPnl <= -Math.abs(this.cfg.botStopLossUsd))
+    else if (this.cfg.botStopLossUsd && this.realizedPnl <= -Math.abs(this.cfg.botStopLossUsd))
       this.stop(`bot stop-loss ${this.realizedPnl.toFixed(2)}`);
-    else if (this.realizedPnl >= Math.abs(this.cfg.botTakeProfitUsd))
+    else if (this.cfg.botTakeProfitUsd && this.realizedPnl >= Math.abs(this.cfg.botTakeProfitUsd))
       this.stop(`bot take-profit ${this.realizedPnl.toFixed(2)}`);
 
     this.persistDayState();

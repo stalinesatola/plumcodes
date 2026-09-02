@@ -1,11 +1,9 @@
 {
-  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário. STAKE = 5% da banca por trade (stake.pctOfBalance); o risco real (slUsd) flutua com a distância do stop e nunca passa do stake. Teto de segurança: um stake nunca passa de 20% do saldo. FILTRO DE REGIME (ideia do AURUM): momentum (frankfurt/newyork) só opera com ADX(M15) >= 25; reversão à média (sydney/tokyo/london) só com ADX < 22. Cooldown de 20 min entre entradas do mesmo bot.",
-
+  "//": "FOCO: so Gold/USD (frxXAUUSD). Todos os 6 bots rodam 24/7 (sem janela de sessao). Quem controla o que opera: (1) o filtro de regime ADX(M15) por bot, (2) o filtro de estrutura diaria, (3) a tecla [b] no monitor (liga/desliga cada bot ao vivo). Sem auto-PARADO no lucro; o unico circuit breaker por bot e botStopLossUsd 500 (~4 perdas cheias). Risco global: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5.",
   "account": {
     "mode": "demo",
     "currency": "USD"
   },
-
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
@@ -16,7 +14,6 @@
     "cooldownMinutes": 30,
     "maxRiskPerTradePct": 1.5
   },
-
   "learning": {
     "//": "Bandit Thompson + hill-climb + kill/probation. exploreTrades: 15 operacoes sem filtro por aposta p/ calibrar.",
     "enabled": true,
@@ -25,24 +22,24 @@
     "exploreTrades": 15,
     "killWinrate": 0.35,
     "probationStake": 0.5,
-    "banditSafety": 1.0,
+    "banditSafety": 1,
     "tuneStep": 0.1,
     "persistPath": "data/learn-state.json"
   },
-
   "ml": {
     "//": "DESLIGADO 2026-09-01 temporariamente: o predictor.py em si esta OK (responde ping/predict, salva model.json), mas estava em loop de crash porque HAVIA 3 processos do bot rodando juntos (2 zumbis) e cada pm2 restart matava os filhos python (code=3221225786 = Ctrl+C do grupo). Religar (enabled:true) depois de garantir 1 so instancia via pm2.",
     "enabled": false,
     "pythonPath": "python",
     "scriptPath": "ml/predictor.py",
-    "minEdge": 0.0
+    "minEdge": 0
   },
-
   "session": {
     "dailyResetUtc": "00:00",
-    "reconnect": { "pingIntervalSec": 20, "maxBackoffSec": 60 }
+    "reconnect": {
+      "pingIntervalSec": 20,
+      "maxBackoffSec": 60
+    }
   },
-
   "alerts": {
     "//": "Telegram: preencha TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no .env. heartbeatMinutes: 0 = sem resumo periodico.",
     "telegram": {
@@ -54,7 +51,6 @@
       "heartbeatMinutes": 240
     }
   },
-
   "structure": {
     "//": "Filtro de estrutura diaria (portado do indicador XAUUSD_DailyStructure): zonas R1/S1 (~1d) e R2/S2 (~5d) de maximas/minimas H1, nivel de invalidacao (~10d), vies EMA20/50 H1. TODOS os bots consultam antes de entrar. mode 'block-counter' so barra o que vai claramente contra a estrutura; 'require-zone' exige o preco numa zona a favor.",
     "enabled": true,
@@ -68,135 +64,255 @@
     "emaSlow": 50,
     "zoneBandK": 1.2
   },
-
   "bots": [
     {
-      "//": "SYDNEY 21-06 UTC. Liquidez fina, ouro tende a oscilar em range -> reversao a media (Bollinger 2.0 + RSI). Janela cruza a meia-noite.",
+      "//": "Reversao a media (Bollinger 2.0 + RSI). 24/7 — o ADX(<22) e a tecla [b] do monitor decidem quando opera.",
       "id": "xau-sydney",
       "enabled": true,
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 1, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 1,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
-        "stopAtrMult": 1.0, "tradeStart": 21, "tradeEnd": 6, "multiplier": 100, "rr": 1.5
+        "bbPeriod": 20,
+        "bbK": 2,
+        "rsiPeriod": 14,
+        "rsiOb": 68,
+        "rsiOs": 32,
+        "stopAtrMult": 1,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 0.5,
-      "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
-      "regimeAdx": { "period": 14, "max": 22 },
+      "regimeAdx": {
+        "period": 14,
+        "max": 22
+      },
       "minMinutesBetweenTrades": 20,
-      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 300,
-      "botTakeProfitUsd": 400
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botStopLossUsd": 500
     },
     {
-      "//": "TOKYO 00-09 UTC. Mesma logica de reversao a media da sessao asiatica.",
+      "//": "Reversao a media (Bollinger 2.0 + RSI), copia do sydney. 24/7 — controlado por ADX + [b].",
       "id": "xau-tokyo",
       "enabled": true,
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 1, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 1,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "bbPeriod": 20, "bbK": 2.0, "rsiPeriod": 14, "rsiOb": 68, "rsiOs": 32,
-        "stopAtrMult": 1.0, "tradeStart": 0, "tradeEnd": 9, "multiplier": 100, "rr": 1.5
+        "bbPeriod": 20,
+        "bbK": 2,
+        "rsiPeriod": 14,
+        "rsiOb": 68,
+        "rsiOs": 32,
+        "stopAtrMult": 1,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 0.5,
-      "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
-      "regimeAdx": { "period": 14, "max": 22 },
+      "regimeAdx": {
+        "period": 14,
+        "max": 22
+      },
       "minMinutesBetweenTrades": 20,
-      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 300,
-      "botTakeProfitUsd": 400
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botStopLossUsd": 500
     },
     {
-      "//": "FRANKFURT 06-14 UTC. Abertura da Europa costuma dar expansao de volatilidade -> momentum (corpo de vela >= forceMult*ATR).",
+      "//": "Momentum (corpo de vela >= forceMult*ATR M5). 24/7 — so opera com ADX(M15)>=25; ligar/desligar em [b].",
       "id": "xau-frankfurt",
       "enabled": true,
       "strategy": "gold_ny_momo",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 2,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "tradeStart": 6, "tradeEnd": 14, "forceMult": 1.2, "stopAtrMult": 1.0,
-        "multiplier": 100, "rr": 1.5
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "forceMult": 1.2,
+        "stopAtrMult": 1,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 1,
-      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
-      "regimeAdx": { "period": 14, "min": 25 },
+      "regimeAdx": {
+        "period": 14,
+        "min": 25
+      },
       "minMinutesBetweenTrades": 20,
-      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 350,
-      "botTakeProfitUsd": 450
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botStopLossUsd": 500
     },
     {
-      "//": "LONDON 07-16 UTC. A sessao mais mean-revert do ouro na caracterizacao (M5 VR(4)=0.90). Bandas mais apertadas p/ mais entradas.",
+      "//": "Reversao a media, bandas mais apertadas (mais entradas). 24/7 — ADX(<22) + [b].",
       "id": "xau-london",
       "enabled": true,
       "strategy": "gold_meanrev_london",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 2,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "bbPeriod": 20, "bbK": 1.8, "rsiPeriod": 14, "rsiOb": 66, "rsiOs": 34,
-        "stopAtrMult": 1.0, "tradeStart": 7, "tradeEnd": 16, "multiplier": 100, "rr": 1.5
+        "bbPeriod": 20,
+        "bbK": 1.8,
+        "rsiPeriod": 14,
+        "rsiOb": 66,
+        "rsiOs": 34,
+        "stopAtrMult": 1,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 1,
-      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 45,
-      "regimeAdx": { "period": 14, "max": 22 },
+      "regimeAdx": {
+        "period": 14,
+        "max": 22
+      },
       "minMinutesBetweenTrades": 20,
-      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 350,
-      "botTakeProfitUsd": 450
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botStopLossUsd": 500
     },
     {
-      "//": "NEW YORK 12-21 UTC. Overlap Londres/NY = pico de volatilidade do ouro -> momentum pos-abertura.",
+      "//": "Momentum pos-impulso. 24/7 — ADX(M15)>=25 + [b].",
       "id": "xau-newyork",
       "enabled": true,
       "strategy": "gold_ny_momo",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 2,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "tradeStart": 12, "tradeEnd": 21, "forceMult": 1.1, "stopAtrMult": 1.0,
-        "multiplier": 100, "rr": 1.5
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "forceMult": 1.1,
+        "stopAtrMult": 1,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 1,
-      "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
-      "regimeAdx": { "period": 14, "min": 25 },
+      "regimeAdx": {
+        "period": 14,
+        "min": 25
+      },
       "minMinutesBetweenTrades": 20,
-      "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 350,
-      "botTakeProfitUsd": 450
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botStopLossUsd": 500
     },
     {
-      "//": "SCALP de pullback a favor da tendencia M5 (EMA50 + Estocastico 14/3/3 + Bollinger 20/2 + candle de rejeicao na banda). Alvo curto rr 1.5, stop <= $4. Sessao liquida 7-21 UTC (Londres+NY), com um minimo de tendencia (ADX>=18). SETUP SELETIVO — poucas entradas por semana. NAO foi possivel backtestar: a Deriv so serve ~11h de M1 do ouro nesta conta.",
+      "//": "Scalp de pullback a favor da tendencia M5 (EMA50 + Estocastico 14/3/3 + Bollinger 20/2 + candle de rejeicao). 24/7, ADX>=18, setup seletivo. [b] controla.",
       "id": "xau-scalp",
       "enabled": true,
       "strategy": "gold_trend_scalp",
       "symbol": "frxXAUUSD",
       "durationTicks": 0,
-      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "stake": {
+        "base": 2,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
       "params": {
-        "emaPeriod": 50, "stochK": 14, "stochSlow": 3, "stochD": 3,
-        "stochOs": 20, "stochOb": 80, "bbPeriod": 20, "bbK": 2.0,
-        "wickRatio": 0.5, "stopAtrMult": 1.2, "maxStopUsd": 4.0,
-        "tradeStart": 7, "tradeEnd": 21, "multiplier": 100, "rr": 1.5
+        "emaPeriod": 50,
+        "stochK": 14,
+        "stochSlow": 3,
+        "stochD": 3,
+        "stochOs": 20,
+        "stochOb": 80,
+        "bbPeriod": 20,
+        "bbK": 2,
+        "wickRatio": 0.5,
+        "stopAtrMult": 1.2,
+        "maxStopUsd": 4,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100,
+        "rr": 1.5
       },
       "riskPerTradePct": 1,
-      "daily": { "maxWins": 8, "maxLosses": 5, "maxTrades": 20 },
       "maxHoldMinutes": 15,
-      "regimeAdx": { "period": 14, "min": 18 },
+      "regimeAdx": {
+        "period": 14,
+        "min": 18
+      },
       "minMinutesBetweenTrades": 10,
-      "manageStop": { "breakEvenAtR": 0.8, "trailAfterR": 1.0, "trailGapR": 0.5 },
-      "botStopLossUsd": 350,
-      "botTakeProfitUsd": 450
+      "manageStop": {
+        "breakEvenAtR": 0.8,
+        "trailAfterR": 1,
+        "trailGapR": 0.5
+      },
+      "botStopLossUsd": 500
     }
   ]
 }

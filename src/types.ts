@@ -75,8 +75,11 @@ export interface BotConfig {
     martingale: { enabled: boolean; factor: number; maxSteps: number };
   };
   params: Record<string, number>;
-  botStopLossUsd: number;
-  botTakeProfitUsd: number;
+  /** [Opcional] circuit breaker por bot: para o bot no dia se o P/L do dia cair
+   *  abaixo de -este valor. Ausente = sem breaker por bot (só o risco global). */
+  botStopLossUsd?: number;
+  /** [Opcional] para o bot no dia ao atingir +este P/L. Ausente = não para no lucro. */
+  botTakeProfitUsd?: number;
   /** [Opcional] % do saldo arriscada por trade (usado por estrategias de multiplicador). */
   riskPerTradePct?: number;
   /** [Opcional] limites diarios de scalping: para o bot ate o proximo dia UTC. */

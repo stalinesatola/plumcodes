@@ -1125,11 +1125,13 @@ async function main(): Promise<void> {
           out(`${ESC}2J`);
           render(m, cfg);
         } else if (/^[1-9]$/.test(key)) {
-          const idx = Number(key) - 1;
-          const b = cfg.bots?.[idx];
+          const b = cfg.bots?.[Number(key) - 1];
           if (b?.id) {
-            const cur = allBotEnabled()[b.id] !== false;
-            setBotEnabled(b.id, !cur);
+            const on = allBotEnabled()[b.id] !== false;
+            const st = (m.botStatus?.bots ?? []).find((x: any) => x.id === b.id);
+            // ligado + rodando -> desliga; caso contrário liga (o "ligar" também
+            // manda um resume, o que tira o bot de um PARADO)
+            setBotEnabled(b.id, !(on && !st?.stopped));
             render(m, cfg);
           }
         }
