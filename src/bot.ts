@@ -55,6 +55,7 @@ export class Bot {
   private candles: CandleAggregator | null = null;
   private adxM15: number | null = null; // regime (força da tendência) — filtro do AURUM
   private lastEntryMs = 0; // cooldown entre entradas do mesmo bot
+  private riskCfg: AppConfig["risk"] | null = null;
 
   // filtro de estrutura diaria (zonas H1 + vies) — compartilhado por todos os bots
   private h1: CandleAggregator | null = null;
@@ -88,6 +89,7 @@ export class Bot {
     ml: MlBridge;
     currency: string;
     structureCfg?: AppConfig["structure"];
+    riskCfg?: AppConfig["risk"];
   }) {
     this.cfg = opts.cfg;
     this.id = opts.cfg.id;
@@ -98,6 +100,7 @@ export class Bot {
     this.learner = opts.learner;
     this.ml = opts.ml;
     this.currency = opts.currency;
+    this.riskCfg = opts.riskCfg ?? null;
     this.log = createLogger(`bot:${this.id}`);
     // 700 velas M1 (~46 M15) — suficiente para ADX(M15,14)
     if (this.strat.kind === "candle") this.candles = new CandleAggregator(60, 700);
@@ -422,6 +425,19 @@ export class Bot {
               Number((stake * 0.95).toFixed(2)),
               Math.max(0.1, Number((stake * stopFraction).toFixed(2))),
             );
+          }
+        }
+        // teto RÍGIDO de risco por trade: se o SL passar de maxRiskPerTradePct%
+        // do saldo (ex.: stop largo de reversão à média × stake de 5%), reduz o
+        // stake proporcionalmente para o SL caber no teto.
+        const maxRiskPct = this.riskCfg?.maxRiskPerTradePct;
+        if (maxRiskPct && maxRiskPct > 0) {
+          const cap = Number(((this.risk.balance * maxRiskPct) / 100).toFixed(2));
+          if (slUsd > cap && slUsd > 0) {
+            const factor = cap / slUsd;
+            stake = Math.max(1, Number((stake * factor).toFixed(2)));
+            slUsd = cap;
+            this.log.debug(`risco > ${maxRiskPct}% do saldo -> stake reduzido p/ ${stake} (SL ${slUsd})`);
           }
         }
         const tpUsd = Number((slUsd * (intent.rr ?? 2)).toFixed(2));

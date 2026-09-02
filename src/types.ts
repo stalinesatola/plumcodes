@@ -8,6 +8,9 @@ export interface AppConfig {
     hardFloorBalance: number;
     globalLossStreakPause: number;
     cooldownMinutes: number;
+    /** [Opcional] teto rígido de risco por trade em % do saldo. Se o SL de um
+     *  multiplicador passar disso, o stake é reduzido para caber. */
+    maxRiskPerTradePct?: number;
   };
   learning: {
     enabled: boolean;

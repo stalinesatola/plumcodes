@@ -13,7 +13,8 @@
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
-    "cooldownMinutes": 30
+    "cooldownMinutes": 30,
+    "maxRiskPerTradePct": 1.5
   },
 
   "learning": {
@@ -87,8 +88,8 @@
       "regimeAdx": { "period": 14, "max": 22 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 15,
-      "botTakeProfitUsd": 25
+      "botStopLossUsd": 300,
+      "botTakeProfitUsd": 400
     },
     {
       "//": "TOKYO 00-09 UTC. Mesma logica de reversao a media da sessao asiatica.",
@@ -108,8 +109,8 @@
       "regimeAdx": { "period": 14, "max": 22 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 15,
-      "botTakeProfitUsd": 25
+      "botStopLossUsd": 300,
+      "botTakeProfitUsd": 400
     },
     {
       "//": "FRANKFURT 06-14 UTC. Abertura da Europa costuma dar expansao de volatilidade -> momentum (corpo de vela >= forceMult*ATR).",
@@ -129,8 +130,8 @@
       "regimeAdx": { "period": 14, "min": 25 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 25,
-      "botTakeProfitUsd": 35
+      "botStopLossUsd": 350,
+      "botTakeProfitUsd": 450
     },
     {
       "//": "LONDON 07-16 UTC. A sessao mais mean-revert do ouro na caracterizacao (M5 VR(4)=0.90). Bandas mais apertadas p/ mais entradas.",
@@ -150,8 +151,8 @@
       "regimeAdx": { "period": 14, "max": 22 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 25,
-      "botTakeProfitUsd": 35
+      "botStopLossUsd": 350,
+      "botTakeProfitUsd": 450
     },
     {
       "//": "NEW YORK 12-21 UTC. Overlap Londres/NY = pico de volatilidade do ouro -> momentum pos-abertura.",
@@ -171,8 +172,8 @@
       "regimeAdx": { "period": 14, "min": 25 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
-      "botStopLossUsd": 25,
-      "botTakeProfitUsd": 35
+      "botStopLossUsd": 350,
+      "botTakeProfitUsd": 450
     }
   ]
 }

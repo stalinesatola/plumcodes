@@ -92,6 +92,7 @@ async function main() {
       ml,
       currency: cfg.account.currency,
       structureCfg: cfg.structure,
+      riskCfg: cfg.risk,
     });
     bots.push(bot);
     const arr = bySymbol.get(bc.symbol) ?? [];
