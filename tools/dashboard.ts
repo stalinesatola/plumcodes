@@ -521,7 +521,8 @@ function render(m: Model, cfg: any): void {
       adxAvg == null
         ? ""
         : ` ${T.dim}· ADX ${adxAvg >= 25 ? T.green : adxAvg < 22 ? T.yellow : T.dim}${adxAvg.toFixed(0)}${RESET}`;
-    buf.push(put(risk, 7, 0, `${T.dim}estrutura ${bcol}${bl}${RESET}${T.dim} S1 ${T.text}${stc.s1?.toFixed(0)}${T.dim} R1 ${T.text}${stc.r1?.toFixed(0)}${RESET}`));
+    const stTag = cfg?.structure?.mode === "off" ? `${T.dim} (info)` : "";
+    buf.push(put(risk, 7, 0, `${T.dim}estrutura ${bcol}${bl}${RESET}${T.dim} S1 ${T.text}${stc.s1?.toFixed(0)}${T.dim} R1 ${T.text}${stc.r1?.toFixed(0)}${stTag}${RESET}`));
     buf.push(put(risk, 8, 0, `${T.dim}  S2 ${stc.s2?.toFixed(0)} R2 ${stc.r2?.toFixed(0)} · inv ${stc.invalLow?.toFixed(0)}${adxStr}`));
   } else if (adxAvg != null) {
     buf.push(put(risk, 7, 0, `${T.dim}regime  ADX(M15) ${adxAvg >= 25 ? T.green : T.yellow}${adxAvg.toFixed(0)}${RESET}${T.dim} ${adxAvg >= 25 ? "tendência" : adxAvg < 22 ? "lateral" : "indefinido"}${RESET}`));

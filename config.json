@@ -52,9 +52,9 @@
     }
   },
   "structure": {
-    "//": "Filtro de estrutura diaria (portado do indicador XAUUSD_DailyStructure): zonas R1/S1 (~1d) e R2/S2 (~5d) de maximas/minimas H1, nivel de invalidacao (~10d), vies EMA20/50 H1. TODOS os bots consultam antes de entrar. mode 'block-counter' so barra o que vai claramente contra a estrutura; 'require-zone' exige o preco numa zona a favor.",
+    "//": "Estrutura diaria (portado do indicador XAUUSD_DailyStructure): zonas R1/S1 (~1d), R2/S2 (~5d), invalidacao (~10d), vies EMA20/50 H1. mode off = SO CALCULA E MOSTRA no monitor, nao barra entrada nenhuma (bots 100% independentes). block-counter volta a filtrar so o que vai contra a estrutura; require-zone exige o preco numa zona a favor.",
     "enabled": true,
-    "mode": "block-counter",
+    "mode": "off",
     "shortLookback": 24,
     "mediumLookback": 120,
     "invalLookback": 240,

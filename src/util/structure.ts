@@ -107,7 +107,7 @@ export function zoneAt(
   return null;
 }
 
-export type StructureMode = "block-counter" | "require-zone";
+export type StructureMode = "off" | "block-counter" | "require-zone";
 
 /**
  * Filtro compartilhado: a entrada `dir` faz sentido dada a estrutura?

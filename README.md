@@ -175,13 +175,13 @@ session balances from `data/session.json`. Regenerate the image with
 setups on the one pair, all running **24/7** — three Bollinger + RSI mean-reversion bots
 (`xau-sydney`, `xau-tokyo`, `xau-london`), two candle-momentum bots (`xau-frankfurt`,
 `xau-newyork`), and a trend-pullback scalp (`xau-scalp`). Each bot runs its own strategy
-logic with no shared regime gate; the only shared filter still on is the **daily
-structure** one (`structure.enabled`, itself easy to turn off), and the monitor's
-**`b`** overlay enables/disables each bot live. There is no auto-park on profit and no
-daily trade cap — the only per-bot circuit breaker is `botStopLossUsd` (a soft one you
-can clear from `b`); the account-wide guards are the 15 % daily stop, the loss-streak
-pause, and the hard floor. `regimeAdx` is still supported per bot if you want to add it
-back; the monitor shows the current ADX(M15) either way.
+logic with **no shared entry filter** — `structure.mode` is `off` (the zones are still
+computed and shown in the monitor, just not enforced) and `regimeAdx` is unset. The
+monitor's **`b`** overlay enables/disables each bot live. There is no auto-park on
+profit and no daily trade cap — the only per-bot circuit breaker is `botStopLossUsd`
+(a soft one you can clear from `b`); the account-wide guards are the 15 % daily stop,
+the loss-streak pause, and the hard floor. Set `structure.mode` back to `block-counter`
+or add `regimeAdx` per bot to bring the filters back.
 
 24/7 process supervision via PM2: `pm2 start ecosystem.config.cjs`. Run exactly one
 instance — several bot processes against the same account corrupt the shared learning

@@ -47,7 +47,7 @@ export interface AppConfig {
    *  zonas R1/S1/R2/S2 + invalidação + viés EMA H1. TODOS os bots consultam antes de entrar. */
   structure?: {
     enabled: boolean;
-    mode?: "block-counter" | "require-zone";
+    mode?: "off" | "block-counter" | "require-zone";
     shortLookback?: number;
     mediumLookback?: number;
     invalLookback?: number;

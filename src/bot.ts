@@ -340,8 +340,8 @@ export class Bot {
       }
     }
 
-    // filtro de estrutura diária (compartilhado por todos os bots)
-    if (this.structure && this.structCfg) {
+    // filtro de estrutura diária (compartilhado). mode "off" = só calcula/mostra, não barra
+    if (this.structure && this.structCfg && this.structMode !== "off") {
       const dir: "up" | "down" =
         intent.contractType === "MULTUP" || intent.contractType === "CALL" ? "up" : "down";
       const g = structureGate(dir, quote, this.structure, this.structMode, this.structBandK);
