@@ -9,7 +9,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 5,
+    "maxConcurrentBots": 6,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -172,6 +172,29 @@
       "regimeAdx": { "period": 14, "min": 25 },
       "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
+      "botStopLossUsd": 350,
+      "botTakeProfitUsd": 450
+    },
+    {
+      "//": "SCALP de pullback a favor da tendencia M5 (EMA50 + Estocastico 14/3/3 + Bollinger 20/2 + candle de rejeicao na banda). Alvo curto rr 1.5, stop <= $4. Sessao liquida 7-21 UTC (Londres+NY), com um minimo de tendencia (ADX>=18). SETUP SELETIVO — poucas entradas por semana. NAO foi possivel backtestar: a Deriv so serve ~11h de M1 do ouro nesta conta.",
+      "id": "xau-scalp",
+      "enabled": true,
+      "strategy": "gold_trend_scalp",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 5, "martingale": { "enabled": false, "factor": 2.0, "maxSteps": 2 } },
+      "params": {
+        "emaPeriod": 50, "stochK": 14, "stochSlow": 3, "stochD": 3,
+        "stochOs": 20, "stochOb": 80, "bbPeriod": 20, "bbK": 2.0,
+        "wickRatio": 0.5, "stopAtrMult": 1.2, "maxStopUsd": 4.0,
+        "tradeStart": 7, "tradeEnd": 21, "multiplier": 100, "rr": 1.5
+      },
+      "riskPerTradePct": 1,
+      "daily": { "maxWins": 8, "maxLosses": 5, "maxTrades": 20 },
+      "maxHoldMinutes": 15,
+      "regimeAdx": { "period": 14, "min": 18 },
+      "minMinutesBetweenTrades": 10,
+      "manageStop": { "breakEvenAtR": 0.8, "trailAfterR": 1.0, "trailGapR": 0.5 },
       "botStopLossUsd": 350,
       "botTakeProfitUsd": 450
     }

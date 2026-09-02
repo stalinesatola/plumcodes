@@ -1,5 +1,5 @@
 import type { Strategy, StrategyContext, TradeIntent, Candle } from "../types.ts";
-import { sma, ema, rsi } from "../util/indicators.ts";
+import { sma, ema, rsi, stochastic } from "../util/indicators.ts";
 
 // ============================================================================
 // RESET 2026-08-30 — foco em Gold/USD (frxXAUUSD), mercado real.
@@ -255,6 +255,101 @@ const goldNyMomo: Strategy = {
 };
 
 // ============================================================================
+// 5) gold_trend_scalp — scalp de pullback A FAVOR da tendência M5 (spec do usuário).
+//    EMA50(M5) define a direção. Estocástico(14,3,3) saindo de sobrevenda/sobrecompra
+//    (cruzamento K×D) marca o fim do pullback. Candle M5 de rejeição (pavio longo)
+//    tocando a banda de Bollinger(20,2) é o gatilho. Alvo curto (rr ~1.5), stop de
+//    scalp (min(maxStopUsd, ATR-M1) ou abaixo do pavio).
+// ============================================================================
+const goldTrendScalp: Strategy = {
+  name: "gold_trend_scalp",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const emaP = Math.round(p.emaPeriod ?? 50);
+    const kP = Math.round(p.stochK ?? 14);
+    const kSlow = Math.round(p.stochSlow ?? 3);
+    const dP = Math.round(p.stochD ?? 3);
+    const stochOs = p.stochOs ?? 20;
+    const stochOb = p.stochOb ?? 80;
+    const bbP = Math.round(p.bbPeriod ?? 20);
+    const bbK = p.bbK ?? 2.0;
+    const wickRatio = p.wickRatio ?? 0.5; // pavio de rejeição >= metade do range
+    const mult = p.multiplier ?? 100;
+    const rr = p.rr ?? 1.5;
+    const stopAtrMult = p.stopAtrMult ?? 1.2;
+    const maxStopUsd = p.maxStopUsd ?? 4.0; // teto do stop (scalp)
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const m1 = ctx.candles;
+    const m5 = rs(m1, 300);
+    const need = Math.max(emaP, bbP, kP + kSlow + dP) + 6;
+    if (m5.length < need || m1.length < 20) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const closed = m5.slice(0, -1); // barras M5 fechadas
+    const last = closed[closed.length - 1]!; // candle de rejeição
+    const cl = closed.map((c) => c.close);
+    const price = m1[m1.length - 1]!.close;
+
+    const emaVal = ema(cl, emaP);
+    if (emaVal == null) return null;
+
+    const st = stochastic(
+      closed.map((c) => c.high),
+      closed.map((c) => c.low),
+      cl,
+      kP,
+      kSlow,
+      dP,
+    );
+    if (st.length < 3) return null;
+    const s0 = st[st.length - 1]!;
+    const s1 = st[st.length - 2]!;
+    const s2 = st[st.length - 3]!;
+
+    const mid = sma(cl, bbP);
+    if (mid == null) return null;
+    const slice = cl.slice(-bbP);
+    const sd = Math.sqrt(slice.reduce((a, x) => a + (x - mid) ** 2, 0) / bbP);
+    const upper = mid + bbK * sd;
+    const lower = mid - bbK * sd;
+
+    const range = last.high - last.low;
+    if (range <= 0) return null;
+    const lowerWick = Math.min(last.open, last.close) - last.low;
+    const upperWick = last.high - Math.max(last.open, last.close);
+
+    const a1 = atr(m1.slice(-30), 14); // ATR(M1) — stop de scalp
+    if (a1 == null || a1 <= 0) return null;
+
+    // estocástico: mergulhou em sobrevenda nas últimas 3 barras e agora sobe (K subindo)
+    const turningUp = s0.k > s1.k && Math.min(s0.k, s1.k, s2.k) <= stochOs && s0.k < 55;
+    const turningDown = s0.k < s1.k && Math.max(s0.k, s1.k, s2.k) >= stochOb && s0.k > 45;
+
+    // COMPRA: preço acima da EMA50(M5) + estocástico saindo de sobrevenda +
+    // candle de rejeição (pavio inferior longo, fechou na metade de cima) tocando
+    // a banda inferior de Bollinger
+    const rejectLow = lowerWick / range >= wickRatio && last.close >= last.low + range * 0.5 && last.low <= lower;
+    if (price > emaVal && turningUp && rejectLow) {
+      const stopDistance = Math.min(maxStopUsd, Math.max(stopAtrMult * a1, price - last.low + 0.15 * a1));
+      return { contractType: "MULTUP", durationTicks: 0, tag: "scalp_buy", multiplier: mult, stopDistance, rr };
+    }
+
+    const rejectHigh = upperWick / range >= wickRatio && last.close <= last.high - range * 0.5 && last.high >= upper;
+    if (price < emaVal && turningDown && rejectHigh) {
+      const stopDistance = Math.min(maxStopUsd, Math.max(stopAtrMult * a1, last.high - price + 0.15 * a1));
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "scalp_sell", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -351,6 +446,7 @@ for (const s of [
   goldTrendM15,
   goldMeanRevLondon,
   goldNyMomo,
+  goldTrendScalp,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {

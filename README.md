@@ -73,8 +73,10 @@ src/
                       (bandit → ML → risk); martingale, per-bot SL/TP, daily caps,
                       and — once a multiplier is in profit — a break-even stop move
                       (Deriv contract_update) plus a manual trailing exit
-  strategies/index.ts the Strategy interface + registry (currently: Gold research
-                      strategies; synthetic-index strategies archived)
+  strategies/index.ts the Strategy interface + registry — Gold research strategies:
+                      session breakout, M15 trend, London mean-reversion, NY
+                      momentum, and a trend-pullback M1/M5 scalp (EMA50 + Stoch
+                      14/3/3 + Bollinger rejection); synthetic-index ones archived
   util/               indicators (SMA/EMA/RSI/Stochastic/fractal swings), candle
                       aggregation + resampling, feature vector, logger
 ml/
