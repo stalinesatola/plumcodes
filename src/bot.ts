@@ -5,8 +5,8 @@ import type { Learner } from "./learn/learner.ts";
 import type { MlBridge } from "./ml/bridge.ts";
 import { getStrategy } from "./strategies/index.ts";
 import { buildFeatures } from "./util/features.ts";
-import { lastDigit } from "./util/indicators.ts";
-import { CandleAggregator, type Candle } from "./util/candles.ts";
+import { lastDigit, adx } from "./util/indicators.ts";
+import { CandleAggregator, resample, type Candle } from "./util/candles.ts";
 import {
   computeStructure,
   structureGate,
@@ -53,6 +53,8 @@ export class Bot {
   private pipSize = 2;
   private maxSeries = 600;
   private candles: CandleAggregator | null = null;
+  private adxM15: number | null = null; // regime (força da tendência) — filtro do AURUM
+  private lastEntryMs = 0; // cooldown entre entradas do mesmo bot
 
   // filtro de estrutura diaria (zonas H1 + vies) — compartilhado por todos os bots
   private h1: CandleAggregator | null = null;
@@ -97,7 +99,8 @@ export class Bot {
     this.ml = opts.ml;
     this.currency = opts.currency;
     this.log = createLogger(`bot:${this.id}`);
-    if (this.strat.kind === "candle") this.candles = new CandleAggregator(60, 400);
+    // 700 velas M1 (~46 M15) — suficiente para ADX(M15,14)
+    if (this.strat.kind === "candle") this.candles = new CandleAggregator(60, 700);
 
     const sc = opts.structureCfg;
     if (sc?.enabled) {
@@ -128,6 +131,7 @@ export class Bot {
     this.dayLosses = s.dayLosses;
     this.dayTrades = s.dayTrades;
     this.realizedPnl = s.realizedPnl;
+    this.lastEntryMs = s.lastEntryMs ?? 0;
     if (s.stopped) {
       this.stopped = true;
       this.stopReason = s.stopReason;
@@ -146,6 +150,7 @@ export class Bot {
       realizedPnl: this.realizedPnl,
       stopped: this.stopped,
       stopReason: this.stopReason,
+      lastEntryMs: this.lastEntryMs,
     });
   }
 
@@ -162,7 +167,13 @@ export class Bot {
 
   seedCandles(candles: Candle[]) {
     this.candles?.seed(candles);
-    this.log.info(`seed ${candles.length} candles M1`);
+    if (this.candles && this.cfg.regimeAdx) {
+      const m15 = resample(this.candles.closed, 900);
+      this.adxM15 = adx(m15, this.cfg.regimeAdx.period ?? 14);
+      this.log.info(`seed ${candles.length} candles M1 · ADX(M15)=${this.adxM15?.toFixed(1) ?? "—"}`);
+    } else {
+      this.log.info(`seed ${candles.length} candles M1`);
+    }
   }
 
   /** Semeia o histórico H1 usado pelo filtro de estrutura diária. */
@@ -231,6 +242,7 @@ export class Bot {
       tuning: this.learner.tuning(this.id),
       defaultDurationTicks: this.cfg.durationTicks,
       structure: this.structure,
+      adxM15: this.adxM15,
     };
   }
 
@@ -243,6 +255,12 @@ export class Bot {
 
     let candleClosed = false;
     if (this.candles) candleClosed = this.candles.add(quote, epoch) !== null;
+
+    // regime: recalcula o ADX(M15) a cada vela M1 fechada
+    if (candleClosed && this.candles && this.cfg.regimeAdx) {
+      const m15 = resample(this.candles.closed, 900);
+      this.adxM15 = adx(m15, this.cfg.regimeAdx.period ?? 14);
+    }
 
     // estrutura diária: recalcula a cada barra H1 fechada
     if (this.h1 && this.structCfg && this.h1.add(quote, epoch) !== null) {
@@ -282,6 +300,32 @@ export class Bot {
 
     const intent = this.strat.evaluate(this.ctx(candleClosed));
     if (!intent) return;
+
+    // cooldown entre entradas do mesmo bot
+    const cd = this.cfg.minMinutesBetweenTrades;
+    if (cd && this.lastEntryMs && Date.now() - this.lastEntryMs < cd * 60_000) {
+      const restam = Math.ceil((cd * 60_000 - (Date.now() - this.lastEntryMs)) / 60_000);
+      this.log.debug(`skip ${intent.tag}: cooldown ${restam}min`);
+      this.lastTradeEpoch = epoch;
+      return;
+    }
+
+    // filtro de regime por ADX(M15) — ideia do AURUM
+    if (this.cfg.regimeAdx) {
+      const r = this.cfg.regimeAdx;
+      if (this.adxM15 == null) {
+        this.log.debug(`skip ${intent.tag}: ADX(M15) ainda sem dados`);
+        this.lastTradeEpoch = epoch;
+        return;
+      }
+      if ((r.min != null && this.adxM15 < r.min) || (r.max != null && this.adxM15 >= r.max)) {
+        this.log.debug(
+          `skip ${intent.tag}: regime ADX ${this.adxM15.toFixed(1)} fora de [${r.min ?? "-"}, ${r.max ?? "-"})`,
+        );
+        this.lastTradeEpoch = epoch;
+        return;
+      }
+    }
 
     // filtro de estrutura diária (compartilhado por todos os bots)
     if (this.structure && this.structCfg) {
@@ -443,6 +487,7 @@ export class Bot {
         peakR: 0,
       };
       this.dayTrades++;
+      this.lastEntryMs = Date.now();
       this.persistDayState();
       this.log.info(
         `ENTRAR ${intent.tag} stake=${stake}` +
@@ -621,6 +666,7 @@ export class Bot {
       wr: this.wins + this.losses ? +(this.wins / (this.wins + this.losses)).toFixed(2) : null,
       day: { w: this.dayWins, l: this.dayLosses, t: this.dayTrades },
       mg: this.martingaleStep,
+      adx: this.adxM15 != null ? +this.adxM15.toFixed(1) : null,
       learn: this.learner.snapshot(this.id),
     };
   }

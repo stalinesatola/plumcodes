@@ -17,6 +17,7 @@ export interface BotDay {
   realizedPnl: number;
   stopped: boolean;
   stopReason: string;
+  lastEntryMs?: number; // p/ o cooldown sobreviver a um restart
 }
 
 interface DayFile {

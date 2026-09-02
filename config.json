@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário. STAKE = 5% da banca por trade (stake.pctOfBalance); o risco real (slUsd) flutua com a distância do stop e nunca passa do stake. Teto de segurança: um stake nunca passa de 20% do saldo.",
+  "//": "FOCO: só Gold/USD (frxXAUUSD). Um setup por praça — Sydney/Tokyo/Frankfurt/London/New York — todos operando o MESMO par (XAUUSD) na janela UTC da sua sessão. Nenhum índice é operado; as sessões são só janelas de horário. STAKE = 5% da banca por trade (stake.pctOfBalance); o risco real (slUsd) flutua com a distância do stop e nunca passa do stake. Teto de segurança: um stake nunca passa de 20% do saldo. FILTRO DE REGIME (ideia do AURUM): momentum (frankfurt/newyork) só opera com ADX(M15) >= 25; reversão à média (sydney/tokyo/london) só com ADX < 22. Cooldown de 20 min entre entradas do mesmo bot.",
 
   "account": {
     "mode": "demo",
@@ -84,6 +84,8 @@
       "riskPerTradePct": 0.5,
       "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
+      "regimeAdx": { "period": 14, "max": 22 },
+      "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 15,
       "botTakeProfitUsd": 25
@@ -103,6 +105,8 @@
       "riskPerTradePct": 0.5,
       "daily": { "maxWins": 5, "maxLosses": 4, "maxTrades": 12 },
       "maxHoldMinutes": 45,
+      "regimeAdx": { "period": 14, "max": 22 },
+      "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 15,
       "botTakeProfitUsd": 25
@@ -122,6 +126,8 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
+      "regimeAdx": { "period": 14, "min": 25 },
+      "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35
@@ -141,6 +147,8 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 45,
+      "regimeAdx": { "period": 14, "max": 22 },
+      "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35
@@ -160,6 +168,8 @@
       "riskPerTradePct": 1,
       "daily": { "maxWins": 6, "maxLosses": 4, "maxTrades": 14 },
       "maxHoldMinutes": 30,
+      "regimeAdx": { "period": 14, "min": 25 },
+      "minMinutesBetweenTrades": 20,
       "manageStop": { "breakEvenAtR": 1.0, "trailAfterR": 1.2, "trailGapR": 0.6 },
       "botStopLossUsd": 25,
       "botTakeProfitUsd": 35

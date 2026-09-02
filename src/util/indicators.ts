@@ -140,3 +140,55 @@ export function momentum(values: number[], lookback: number): number | null {
   if (past === 0) return null;
   return (now - past) / past;
 }
+
+/** ADX (Wilder) — força da tendência (0-100). Candles do mais antigo -> mais recente.
+ *  ADX > ~25 = mercado direcional; < ~20 = lateral. Precisa de ~2*period+1 candles. */
+export function adx(
+  candles: Array<{ high: number; low: number; close: number }>,
+  period = 14,
+): number | null {
+  if (candles.length < period * 2 + 1) return null;
+  const tr: number[] = [];
+  const pDM: number[] = [];
+  const nDM: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i]!;
+    const p = candles[i - 1]!;
+    tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+    const up = c.high - p.high;
+    const down = p.low - c.low;
+    pDM.push(up > down && up > 0 ? up : 0);
+    nDM.push(down > up && down > 0 ? down : 0);
+  }
+  // suavização de Wilder
+  const wilder = (arr: number[]): number[] => {
+    const out: number[] = [];
+    let acc = arr.slice(0, period).reduce((a, b) => a + b, 0);
+    out.push(acc);
+    for (let i = period; i < arr.length; i++) {
+      acc = acc - acc / period + arr[i]!;
+      out.push(acc);
+    }
+    return out;
+  };
+  const trS = wilder(tr);
+  const pS = wilder(pDM);
+  const nS = wilder(nDM);
+  const dx: number[] = [];
+  for (let i = 0; i < trS.length; i++) {
+    const t = trS[i]!;
+    if (t <= 0) {
+      dx.push(0);
+      continue;
+    }
+    const pDI = (100 * pS[i]!) / t;
+    const nDI = (100 * nS[i]!) / t;
+    const sum = pDI + nDI;
+    dx.push(sum > 0 ? (100 * Math.abs(pDI - nDI)) / sum : 0);
+  }
+  if (dx.length < period) return null;
+  // ADX = média de Wilder do DX sobre `period`
+  let a = dx.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < dx.length; i++) a = (a * (period - 1) + dx[i]!) / period;
+  return a;
+}

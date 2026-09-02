@@ -111,7 +111,7 @@ async function main() {
       const { prices, pipSize } = await client.recentTicks(symbol, 600);
       for (const b of group) b.seedPrices(prices, pipSize);
       if (group.some((b) => b.needsCandles())) {
-        const ohlc = await client.candlesOHLC(symbol, 400, 60);
+        const ohlc = await client.candlesOHLC(symbol, 700, 60); // ~46 M15 p/ ADX(M15)
         for (const b of group) if (b.needsCandles()) b.seedCandles(ohlc);
       }
       // histórico H1 p/ o filtro de estrutura diária (zonas de 5-10 dias)

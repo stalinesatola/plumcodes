@@ -80,6 +80,11 @@ export interface BotConfig {
   daily?: { maxWins?: number; maxLosses?: number; maxTrades?: number };
   /** [Opcional] fecha posicao de multiplicador aberta ha mais de N minutos. */
   maxHoldMinutes?: number;
+  /** [Opcional] filtro de regime por ADX(M15) (ideia do AURUM): so opera quando a
+   *  forca da tendencia esta na faixa. Momentum: { min: 25 }. Reversao: { max: 22 }. */
+  regimeAdx?: { period?: number; min?: number; max?: number };
+  /** [Opcional] minutos minimos entre duas entradas do mesmo bot (anti-metralhadora). */
+  minMinutesBetweenTrades?: number;
   /** [Opcional] gestao dinamica do stop de multiplicadores quando o trade ja tem lucro:
    *  - breakEvenAtR: ao atingir +N R nao-realizado, aperta o stop_loss ate ~break-even
    *  - trailAfterR / trailGapR: depois de +trailAfterR R, vende a mercado se o lucro
@@ -143,6 +148,8 @@ export interface StrategyContext {
   defaultDurationTicks: number;
   /** [Opcional] estrutura diaria (zonas H1 + vies) para a estrategia consultar */
   structure?: import("./util/structure.ts").DailyStructure | null;
+  /** [Opcional] ADX(M15) atual — forca da tendencia (regime) */
+  adxM15?: number | null;
 }
 
 export interface Strategy {

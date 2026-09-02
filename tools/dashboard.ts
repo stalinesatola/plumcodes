@@ -508,13 +508,21 @@ function render(m: Model, cfg: any): void {
   } else {
     buf.push(put(risk, 4, 0, `  ${T.dim}(carregando horário…)${RESET}`));
   }
-  // ---- estrutura diária (filtro compartilhado) ----
+  // ---- estrutura diária + regime ADX (filtros compartilhados) ----
   const stc = m.botStatus?.structure;
+  const adxVals: number[] = (m.botStatus?.bots ?? []).map((b: any) => b.adx).filter((x: any) => typeof x === "number");
+  const adxAvg = adxVals.length ? adxVals.reduce((s, v) => s + v, 0) / adxVals.length : null;
   if (stc) {
     const bcol = stc.bias === "up" ? T.green : stc.bias === "down" ? T.red : T.dim;
     const bl = stc.bias === "up" ? "▲ ALTA" : stc.bias === "down" ? "▼ BAIXA" : "• NEUTRO";
-    buf.push(put(risk, 7, 0, `${T.dim}estrutura  ${bcol}${bl}${RESET}${T.dim}  S1 ${T.text}${stc.s1?.toFixed(0)}${T.dim} R1 ${T.text}${stc.r1?.toFixed(0)}${RESET}`));
-    buf.push(put(risk, 8, 0, `${T.dim}  S2 ${stc.s2?.toFixed(0)} R2 ${stc.r2?.toFixed(0)} · inval ${stc.invalLow?.toFixed(0)}${RESET}`));
+    const adxStr =
+      adxAvg == null
+        ? ""
+        : ` ${T.dim}· ADX ${adxAvg >= 25 ? T.green : adxAvg < 22 ? T.yellow : T.dim}${adxAvg.toFixed(0)}${RESET}`;
+    buf.push(put(risk, 7, 0, `${T.dim}estrutura ${bcol}${bl}${RESET}${T.dim} S1 ${T.text}${stc.s1?.toFixed(0)}${T.dim} R1 ${T.text}${stc.r1?.toFixed(0)}${RESET}`));
+    buf.push(put(risk, 8, 0, `${T.dim}  S2 ${stc.s2?.toFixed(0)} R2 ${stc.r2?.toFixed(0)} · inv ${stc.invalLow?.toFixed(0)}${adxStr}`));
+  } else if (adxAvg != null) {
+    buf.push(put(risk, 7, 0, `${T.dim}regime  ADX(M15) ${adxAvg >= 25 ? T.green : T.yellow}${adxAvg.toFixed(0)}${RESET}${T.dim} ${adxAvg >= 25 ? "tendência" : adxAvg < 22 ? "lateral" : "indefinido"}${RESET}`));
   }
 
   // ---- SESSIONS — relógio das 5 praças (contexto p/ o XAUUSD) ----
@@ -865,8 +873,8 @@ async function main(): Promise<void> {
       ts: now - 20_000,
       risk: { pnlToday: 1.85, pnlTodayPct: 0.019, lossStreak: 0, halted: null },
       bots: [
-        { id: "xau-london", stopped: false, open: false },
-        { id: "xau-newyork", stopped: false, open: true },
+        { id: "xau-london", stopped: false, open: false, adx: 18.4 },
+        { id: "xau-newyork", stopped: false, open: true, adx: 28.1 },
       ],
       structure: { bias: "up", s1: 4418, r1: 4472, s2: 4361, r2: 4489, invalLow: 4327, invalHigh: 4512, zoneHalf: 3.1 },
     };

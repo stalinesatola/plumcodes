@@ -59,6 +59,12 @@ src/
                       ~10-day invalidation level, EMA20/50 H1 bias — every bot
                       consults it before entering (no buying into resistance, no
                       selling into support, no trading past invalidation)
+  util/botstate.ts    per-bot daily state (wins/losses/P&L/stopped/cooldown)
+                      persisted by UTC day so a restart resumes the discipline
+  regime filter       ADX(M15) gate (idea from the AURUM EA): momentum bots trade
+                      only when ADX ≥ 25 (trending), mean-reversion bots only when
+                      ADX < 22 (ranging); plus a per-bot minutes-between-trades
+                      cooldown
   learn/learner.ts    adaptive layer (TS): Thompson-sampling bandit per bot × bet type,
                       EV gate, kill-switch + probation, parameter hill-climb, persisted
   ml/bridge.ts        spawns the Python sidecar, line-delimited JSON protocol, graceful
