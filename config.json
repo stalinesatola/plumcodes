@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 6,
+    "maxConcurrentBots": 7,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -287,6 +287,43 @@
         "breakEvenAtR": 0.8,
         "trailAfterR": 1,
         "trailGapR": 0.5
+      },
+      "botStopLossUsd": 500
+    },
+    {
+      "//": "FIMATHE (aprox. automatica da metodologia de Marcelo Ferreira). Canal de referencia M15 (4 velas ~1h), equador = 50%, tendencia por EMA20 M15. mode equador (padrao): entra a favor da tendencia no recuo ao 50% do canal com a vela M15 retomando. Stop alem da zona neutra. FIMATHE e discricionaria — isto e uma leitura automatica dos conceitos, forward-test only.",
+      "id": "xau-fimathe",
+      "enabled": true,
+      "strategy": "gold_fimathe",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 2,
+        "pctOfBalance": 5,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "refBars": 4,
+        "trendEma": 20,
+        "equadorTol": 0.18,
+        "mode": 0,
+        "rr": 2.5,
+        "maxStopUsd": 8,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 90,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.6,
+        "trailGapR": 0.9
       },
       "botStopLossUsd": 500
     }

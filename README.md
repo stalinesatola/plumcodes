@@ -75,8 +75,10 @@ src/
                       (Deriv contract_update) plus a manual trailing exit
   strategies/index.ts the Strategy interface + registry — Gold research strategies:
                       session breakout, M15 trend, London mean-reversion, NY
-                      momentum, and a trend-pullback M1/M5 scalp (EMA50 + Stoch
-                      14/3/3 + Bollinger rejection); synthetic-index ones archived
+                      momentum, a trend-pullback M1/M5 scalp (EMA50 + Stoch 14/3/3
+                      + Bollinger rejection), and an automated read of the FIMATHE
+                      method (M15 reference channel + equador retracement);
+                      synthetic-index ones archived
   util/               indicators (SMA/EMA/RSI/Stochastic/fractal swings), candle
                       aggregation + resampling, feature vector, logger
 ml/

@@ -350,6 +350,100 @@ const goldTrendScalp: Strategy = {
 };
 
 // ============================================================================
+// 6) gold_fimathe — aproximação AUTOMÁTICA da metodologia FIMATHE (Marcelo Ferreira).
+//    FIMATHE é discricionária (o trader desenha os canais à mão nos momentos certos);
+//    isto é uma leitura automatizada dos conceitos centrais:
+//      - CANAL DE REFERÊNCIA (M15): range das últimas `refBars` velas M15 fechadas.
+//        W = altura; equador = 50%.
+//      - ZONA NEUTRA: uma largura W do lado CONTRÁRIO à tendência (não se opera nela).
+//      - TENDÊNCIA: preço vs EMA(M15, trendEma) e vs equador.
+//      - ENTRADA:
+//          mode "equador" (padrão): a favor da tendência, quando o preço RECUA até
+//            ~50% do canal (equador) e a vela M15 fecha retomando a direção.
+//          mode "rompimento": a favor da tendência, quando o preço ROMPE o canal de
+//            referência saindo da zona neutra.
+//      - STOP: além da zona neutra (chanLo - W p/ compra); alvo = rr*stop.
+//    O "sub-ciclo de proteção" (mover stop p/ 0x0 aos 50%) é coberto pelo
+//    manageStop do bot (break-even + trailing).
+// ============================================================================
+const goldFimathe: Strategy = {
+  name: "gold_fimathe",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const refBars = Math.round(p.refBars ?? 4); // velas M15 do canal de referência (~1h)
+    const trendEma = Math.round(p.trendEma ?? 20);
+    const equadorTol = p.equadorTol ?? 0.18; // faixa em torno do 50%
+    const mode = p.mode === 1 ? "rompimento" : "equador"; // params são numéricos: 1 = rompimento
+    const rr = p.rr ?? 2.0;
+    const maxStopUsd = p.maxStopUsd ?? 8;
+    const mult = p.multiplier ?? 100;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const m1 = ctx.candles;
+    const m15 = rs(m1, 900);
+    if (m15.length < Math.max(refBars, trendEma) + 6) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const closed = m15.slice(0, -1); // velas M15 fechadas
+    const last = closed[closed.length - 1]!; // vela de sinal (recém-fechada)
+    const prev = closed[closed.length - 2]!;
+    const cl = closed.map((c) => c.close);
+    const price = m1[m1.length - 1]!.close;
+
+    // canal de referência: range das refBars velas ANTERIORES à vela de sinal
+    const refWin = closed.slice(-1 - refBars, -1);
+    if (refWin.length < refBars) return null;
+    const chanHi = Math.max(...refWin.map((c) => c.high));
+    const chanLo = Math.min(...refWin.map((c) => c.low));
+    const W = chanHi - chanLo;
+    if (W <= 0) return null;
+    const equador = (chanHi + chanLo) / 2;
+    const buffer = 0.1 * W;
+
+    const ema15 = ema(cl, trendEma);
+    if (ema15 == null) return null;
+    const up = price > ema15 && price > equador;
+    const dn = price < ema15 && price < equador;
+
+    if (mode === "rompimento") {
+      if (up && last.close > chanHi && prev.close <= chanHi) {
+        const stopDistance = Math.min(maxStopUsd, Math.max(0.3, price - (chanLo - W)));
+        return { contractType: "MULTUP", durationTicks: 0, tag: "fim_buy", multiplier: mult, stopDistance, rr };
+      }
+      if (dn && last.close < chanLo && prev.close >= chanLo) {
+        const stopDistance = Math.min(maxStopUsd, Math.max(0.3, (chanHi + W) - price));
+        return { contractType: "MULTDOWN", durationTicks: 0, tag: "fim_sell", multiplier: mult, stopDistance, rr };
+      }
+      return null;
+    }
+
+    // mode "equador": recuo ao 50% do canal e retomada da tendência
+    if (up) {
+      const touched = last.low <= equador + equadorTol * W && last.low >= chanLo - buffer;
+      const resumed = last.close > last.open && last.close > equador;
+      if (touched && resumed) {
+        const stopDistance = Math.min(maxStopUsd, Math.max(0.3, price - (chanLo - buffer)));
+        return { contractType: "MULTUP", durationTicks: 0, tag: "fim_buy", multiplier: mult, stopDistance, rr };
+      }
+    }
+    if (dn) {
+      const touched = last.high >= equador - equadorTol * W && last.high <= chanHi + buffer;
+      const resumed = last.close < last.open && last.close < equador;
+      if (touched && resumed) {
+        const stopDistance = Math.min(maxStopUsd, Math.max(0.3, (chanHi + buffer) - price));
+        return { contractType: "MULTDOWN", durationTicks: 0, tag: "fim_sell", multiplier: mult, stopDistance, rr };
+      }
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -447,6 +541,7 @@ for (const s of [
   goldMeanRevLondon,
   goldNyMomo,
   goldTrendScalp,
+  goldFimathe,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {
