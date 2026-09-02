@@ -23,6 +23,7 @@ import { exec } from "node:child_process";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
 import { SESSIONS, sessionOpen, nextOpenMs, closeInMs, GOLD_SYMBOL } from "../src/util/markets.ts";
+import { setBotEnabled, allBotEnabled } from "../src/util/controls.ts";
 
 // ------------------------------------------------------------------ ANSI / tema
 const ESC = "\x1b[";
@@ -193,6 +194,7 @@ interface Model {
   restartMsg: string; // status do pm2 restart em curso ("" = nada)
   priceIdx: number;
   showStats: boolean; // overlay [t] — estatística dos últimos 100 trades
+  showBots: boolean; // overlay [b] — ligar/desligar bots em tempo real
   disconnectedSince: number; // ts do início da queda de ligação (0 = ligado)
   err: string;
 }
@@ -715,12 +717,44 @@ function render(m: Model, cfg: any): void {
         ? `${bgRed}${T.text} conectar à CONTA REAL? [s] sim  [n] não ${RESET}`
         : m.showStats
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
-          : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [k] reiniciar bot   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+          : m.showBots
+            ? `${T.dim}[1-9] liga/desliga   [b] fechar   [q] sair${RESET}`
+            : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [b] bots   [k] reiniciar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
+  if (m.showBots) renderBots(m, W, H, cfg, buf);
 
   out(buf.join(""));
+}
+
+/** Overlay [b] — liga/desliga bots em tempo real (data/bot-enabled.json). */
+function renderBots(m: Model, W: number, H: number, cfg: any, buf: string[]): void {
+  const bots: any[] = Array.isArray(cfg?.bots) ? cfg.bots : [];
+  const enabledMap = allBotEnabled();
+  const statusById = new Map<string, any>((m.botStatus?.bots ?? []).map((b: any) => [b.id, b]));
+  const bw = Math.min(78, W - 6);
+  const bh = Math.min(bots.length + 7, H - 4);
+  const bx = Math.floor((W - bw) / 2) + 1;
+  const by = Math.floor((H - bh) / 2) + 1;
+  const r: Rect = { x: bx, y: by, w: bw, h: bh };
+  for (let i = 0; i < bh; i++) buf.push(at(by + i, bx) + " ".repeat(bw));
+  buf.push(...box(r, " bots ", T.mag));
+  buf.push(put(r, 0, 0, `${T.dim}${pad("#", 5)}${pad("bot", 15)}${pad("estratégia", 21)}${pad("estado", 15)}janela${RESET}`));
+  bots.forEach((b, i) => {
+    const on = enabledMap[b.id] !== false;
+    const st = statusById.get(b.id);
+    let estado: string;
+    if (!on) estado = `${T.red}○ DESLIGADO`;
+    else if (st?.stopped) estado = `${T.yellow}▪ parado`;
+    else if (st?.open) estado = `${T.green}● em posição`;
+    else estado = `${T.green}● ativo`;
+    const win = b.params?.tradeStart != null ? `${b.params.tradeStart}-${b.params.tradeEnd}h` : "—";
+    buf.push(
+      put(r, i + 1, 0, `${T.text}${pad(`[${i + 1}]`, 5)}${pad(b.id, 15)}${T.dim}${pad(b.strategy, 21)}${pad(estado, 15)}${RESET}${T.dim}${win}${RESET}`),
+    );
+  });
+  buf.push(put(r, bots.length + 2, 0, `${T.dim}desligar só impede NOVAS entradas — posição aberta segue o curso${RESET}`));
 }
 
 /** Overlay [t] — painel central com a estatística dos últimos 100 trades fechados. */
@@ -803,12 +837,14 @@ async function main(): Promise<void> {
     restartMsg: "",
     priceIdx: 0,
     showStats: false,
+    showBots: false,
     disconnectedSince: 0,
     err: "",
   };
 
   if (demo) {
     if (args.includes("--stats")) m.showStats = true; // p/ pré-visualizar o overlay [t]
+    if (args.includes("--bots")) m.showBots = true; // p/ pré-visualizar o overlay [b]
     const now = Date.now();
     m.connected = true;
     m.startedAt = now - 34 * 60000;
@@ -1083,6 +1119,24 @@ async function main(): Promise<void> {
           m.confirmReal = false;
           render(m, cfg);
         }
+      } else if (m.showBots) {
+        if (key === "b" || key === "\x1b") {
+          m.showBots = false;
+          out(`${ESC}2J`);
+          render(m, cfg);
+        } else if (/^[1-9]$/.test(key)) {
+          const idx = Number(key) - 1;
+          const b = cfg.bots?.[idx];
+          if (b?.id) {
+            const cur = allBotEnabled()[b.id] !== false;
+            setBotEnabled(b.id, !cur);
+            render(m, cfg);
+          }
+        }
+      } else if (key === "b") {
+        m.showBots = true;
+        out(`${ESC}2J`);
+        render(m, cfg);
       } else if (key === "k") {
         m.confirmRestart = true;
         render(m, cfg);

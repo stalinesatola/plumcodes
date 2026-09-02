@@ -155,11 +155,13 @@ trades. Panels:
 
 Shortcuts: `q` quit · `r` refresh (also forces an immediate reconnect if the link is
 down) · `t` toggle the **last-100-trades stats** overlay (win rate, expectancy R,
-profit factor, max drawdown, streaks, breakdown by setup and by bot) · `k` **restart
-the bot** — runs `pm2 restart ecosystem.config.cjs` (asks to confirm), then reloads
-the panels and reconnects · `a` switch the monitor between demo/real (real asks to
-confirm). `--once` to print one frame. Truecolor terminal recommended (Windows
-Terminal works).
+profit factor, max drawdown, streaks, breakdown by setup and by bot) · `b` **bots**
+overlay — `1`–`9` enable/disable each bot live (writes `data/bot-enabled.json`; the
+running bot picks it up within ~4 s, no restart; disabling only blocks *new* entries)
+· `k` **restart the bot** — runs `pm2 restart ecosystem.config.cjs` (asks to confirm),
+then reloads the panels and reconnects · `a` switch the monitor between demo/real
+(real asks to confirm). `--once` to print one frame. Truecolor terminal recommended
+(Windows Terminal works).
 
 If the connection drops, the client keeps retrying with backoff (REST calls have a
 15 s timeout, the socket a 20 s open-timeout) and the monitor runs a 45 s watchdog

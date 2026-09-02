@@ -18,6 +18,7 @@ import {
 import { createLogger } from "./util/logger.ts";
 import { journal } from "./util/journal.ts";
 import { loadBotDay, saveBotDay } from "./util/botstate.ts";
+import { botEnabled } from "./util/controls.ts";
 import { tgTradeOpen, tgTradeClose, tgRisk } from "./util/telegram.ts";
 
 interface OpenMeta {
@@ -291,6 +292,7 @@ export class Bot {
     }
 
     if (this.stopped || this.busy || this.currentContractId !== null) return;
+    if (!botEnabled(this.id)) return; // desligado em tempo real pelo monitor ([b])
     if (this.strat.kind !== "candle" && this.prices.length < this.strat.warmup) return;
     if (epoch === this.lastTradeEpoch) return;
 
@@ -683,6 +685,7 @@ export class Bot {
       day: { w: this.dayWins, l: this.dayLosses, t: this.dayTrades },
       mg: this.martingaleStep,
       adx: this.adxM15 != null ? +this.adxM15.toFixed(1) : null,
+      off: !botEnabled(this.id), // desligado em tempo real pelo monitor
       learn: this.learner.snapshot(this.id),
     };
   }
