@@ -478,7 +478,7 @@ const goldH1Trend: Strategy = {
     const hEnd = p.tradeEnd ?? 24;
 
     const h1 = ctx.h1;
-    if (!h1 || h1.length < emaSlowP + rsiP + 3) return null;
+    if (!h1 || h1.length < emaSlowP + 2) return null; // EMA(emaSlow) precisa de emaSlow barras + 1 p/ o rsiPrev
     const h = hourUTC(ctx.candles[ctx.candles.length - 1]?.epoch ?? 0);
     if (!inWin(h, hStart, hEnd)) return null;
 
