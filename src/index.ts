@@ -109,6 +109,10 @@ async function main() {
 
   for (const [symbol, group] of bySymbol) {
     try {
+      const tt = await client.contractsFor(symbol).catch(() => ({}) as Record<string, string[]>);
+      log.info(
+        `${symbol}: ${group.map((b) => b.id).join(", ")} · trade types: ${Object.values(tt).flat().join(" ") || "?"}`,
+      );
       const { prices, pipSize } = await client.recentTicks(symbol, 600);
       for (const b of group) b.seedPrices(prices, pipSize);
       if (group.some((b) => b.needsCandles())) {

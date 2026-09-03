@@ -195,6 +195,8 @@ interface Model {
   priceIdx: number;
   showStats: boolean; // overlay [t] — estatística dos últimos 100 trades
   showBots: boolean; // overlay [b] — ligar/desligar bots em tempo real
+  botCursor: number; // linha selecionada no overlay [b]
+  tradeTypes: Record<string, Record<string, string[]>>; // símbolo -> categoria -> tipos
   disconnectedSince: number; // ts do início da queda de ligação (0 = ligado)
   err: string;
 }
@@ -719,8 +721,8 @@ function render(m: Model, cfg: any): void {
         : m.showStats
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
           : m.showBots
-            ? `${T.dim}[1-9] liga/desliga   [b] fechar   [q] sair${RESET}`
-            : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [b] bots   [k] reiniciar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+            ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · x=XAU · c=BTC · [b] fechar${RESET}`
+            : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [b] operar/bots   [k] reiniciar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
@@ -729,33 +731,50 @@ function render(m: Model, cfg: any): void {
   out(buf.join(""));
 }
 
-/** Overlay [b] — liga/desliga bots em tempo real (data/bot-enabled.json). */
+const shortSym = (s: string) => s.replace(/^frx/, "").replace(/^cry/, "");
+
+/** Overlay [b] — escolher o que operar: liga/desliga bots (data/bot-enabled.json). */
 function renderBots(m: Model, W: number, H: number, cfg: any, buf: string[]): void {
   const bots: any[] = Array.isArray(cfg?.bots) ? cfg.bots : [];
   const enabledMap = allBotEnabled();
   const statusById = new Map<string, any>((m.botStatus?.bots ?? []).map((b: any) => [b.id, b]));
-  const bw = Math.min(78, W - 6);
-  const bh = Math.min(bots.length + 7, H - 4);
+  const syms = [...new Set(bots.map((b) => b.symbol))] as string[];
+
+  const bw = Math.min(88, W - 4);
+  const bh = Math.min(bots.length + syms.length + 9, H - 3);
   const bx = Math.floor((W - bw) / 2) + 1;
   const by = Math.floor((H - bh) / 2) + 1;
   const r: Rect = { x: bx, y: by, w: bw, h: bh };
   for (let i = 0; i < bh; i++) buf.push(at(by + i, bx) + " ".repeat(bw));
-  buf.push(...box(r, " bots ", T.mag));
-  buf.push(put(r, 0, 0, `${T.dim}${pad("#", 5)}${pad("bot", 15)}${pad("estratégia", 21)}${pad("estado", 15)}janela${RESET}`));
-  bots.forEach((b, i) => {
-    const on = enabledMap[b.id] !== false;
-    const st = statusById.get(b.id);
-    let estado: string;
-    if (!on) estado = `${T.red}○ DESLIGADO`;
-    else if (st?.stopped) estado = `${T.yellow}▪ parado`;
-    else if (st?.open) estado = `${T.green}● em posição`;
-    else estado = `${T.green}● ativo`;
-    const win = b.params?.tradeStart != null ? `${b.params.tradeStart}-${b.params.tradeEnd}h` : "—";
-    buf.push(
-      put(r, i + 1, 0, `${T.text}${pad(`[${i + 1}]`, 5)}${pad(b.id, 15)}${T.dim}${pad(b.strategy, 21)}${pad(estado, 15)}${RESET}${T.dim}${win}${RESET}`),
-    );
-  });
-  buf.push(put(r, bots.length + 2, 0, `${T.dim}desligar só impede NOVAS entradas — posição aberta segue o curso${RESET}`));
+  buf.push(...box(r, " o que operar ", T.mag));
+
+  let y = 0;
+  buf.push(put(r, y++, 0, `${T.dim}${pad("", 4)}${pad("bot", 14)}${pad("estratégia", 20)}${pad("estado", 15)}janela${RESET}`));
+  m.botCursor = Math.max(0, Math.min(m.botCursor, bots.length - 1));
+
+  for (const sym of syms) {
+    const tt = m.tradeTypes[sym];
+    const types = tt ? Object.values(tt).flat().join(" ") : "…";
+    buf.push(put(r, y++, 0, `${T.blue}── ${shortSym(sym)} ${T.dim}· ${clip(types, r.w - shortSym(sym).length - 10)}${RESET}`));
+    bots.forEach((b, gi) => {
+      if (b.symbol !== sym) return;
+      const on = enabledMap[b.id] !== false;
+      const st = statusById.get(b.id);
+      const sel = gi === m.botCursor;
+      let estado: string;
+      if (!on) estado = `${T.red}○ desligado`;
+      else if (st?.stopped) estado = `${T.yellow}▪ parado`;
+      else if (st?.open) estado = `${T.green}● em posição`;
+      else estado = `${T.green}● ativo`;
+      const win = b.params?.tradeStart != null ? `${b.params.tradeStart}-${b.params.tradeEnd}h` : "—";
+      const mark = gi < 9 ? `${gi + 1}` : " ";
+      const row = `${pad(mark, 2)}${sel ? T.cyan + "▸" : " "} ${T.text}${pad(b.id, 14)}${T.dim}${pad(b.strategy, 20)}${pad(estado, 15)}${RESET}${T.dim}${win}${RESET}`;
+      buf.push(put(r, y++, 0, sel ? row.replace(T.text, T.cyan) : row));
+    });
+  }
+  y++;
+  buf.push(put(r, y++, 0, `${T.dim}↑↓/j k mover · espaço liga/desliga · 1-9 direto · x=só XAU · c=só BTC${RESET}`));
+  buf.push(put(r, y++, 0, `${T.dim}desligar só impede NOVAS entradas — posição aberta segue o curso${RESET}`));
 }
 
 /** Overlay [t] — painel central com a estatística dos últimos 100 trades fechados. */
@@ -839,6 +858,8 @@ async function main(): Promise<void> {
     priceIdx: 0,
     showStats: false,
     showBots: false,
+    botCursor: 0,
+    tradeTypes: {},
     disconnectedSince: 0,
     err: "",
   };
@@ -1028,6 +1049,12 @@ async function main(): Promise<void> {
     } catch {
       /* mercado fechado / sem histórico */
     }
+    // trade types por símbolo (dos bots do config) — uma vez basta
+    const syms = [...new Set((cfg.bots ?? []).map((b: any) => b.symbol).filter(Boolean))] as string[];
+    for (const s of syms) {
+      if (m.tradeTypes[s]) continue;
+      m.tradeTypes[s] = await client.contractsFor(s).catch(() => ({}));
+    }
   }
 
   await bringUp(m.monitorMode);
@@ -1121,21 +1148,29 @@ async function main(): Promise<void> {
           render(m, cfg);
         }
       } else if (m.showBots) {
+        const list: any[] = cfg.bots ?? [];
+        const toggle = (b: any) => {
+          if (!b?.id) return;
+          const on = allBotEnabled()[b.id] !== false;
+          const st = (m.botStatus?.bots ?? []).find((x: any) => x.id === b.id);
+          setBotEnabled(b.id, !(on && !st?.stopped)); // ligado+rodando -> desliga; senão liga (+resume)
+        };
         if (key === "b" || key === "\x1b") {
           m.showBots = false;
           out(`${ESC}2J`);
-          render(m, cfg);
+        } else if (key === "\x1b[A" || key === "k") {
+          m.botCursor = Math.max(0, m.botCursor - 1);
+        } else if (key === "\x1b[B" || key === "j") {
+          m.botCursor = Math.min(list.length - 1, m.botCursor + 1);
+        } else if (key === " " || key === "\r") {
+          toggle(list[m.botCursor]);
         } else if (/^[1-9]$/.test(key)) {
-          const b = cfg.bots?.[Number(key) - 1];
-          if (b?.id) {
-            const on = allBotEnabled()[b.id] !== false;
-            const st = (m.botStatus?.bots ?? []).find((x: any) => x.id === b.id);
-            // ligado + rodando -> desliga; caso contrário liga (o "ligar" também
-            // manda um resume, o que tira o bot de um PARADO)
-            setBotEnabled(b.id, !(on && !st?.stopped));
-            render(m, cfg);
-          }
+          toggle(list[Number(key) - 1]);
+        } else if (key === "x" || key === "c") {
+          const want = key === "x" ? "frxXAUUSD" : "cryBTCUSD";
+          for (const b of list) if (b.id) setBotEnabled(b.id, b.symbol === want);
         }
+        render(m, cfg);
       } else if (key === "b") {
         m.showBots = true;
         out(`${ESC}2J`);

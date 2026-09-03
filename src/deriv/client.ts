@@ -559,6 +559,20 @@ export class DerivClient extends EventEmitter {
     this.contractSubs.delete(contractId);
   }
 
+  /** Tipos de contrato ("trade types") disponíveis para um símbolo, agrupados por
+   *  categoria: ex. { multiplier: ["MULTUP","MULTDOWN"], callput: ["CALL","PUT"] }. */
+  async contractsFor(symbol: string): Promise<Record<string, string[]>> {
+    const res = await this.send({ contracts_for: symbol });
+    const out: Record<string, Set<string>> = {};
+    for (const x of res?.contracts_for?.available ?? []) {
+      const cat = x.contract_category ?? "outros";
+      (out[cat] ??= new Set()).add(x.contract_type ?? "?");
+    }
+    const flat: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(out)) flat[k] = [...v];
+    return flat;
+  }
+
   /** Contratos abertos AGORA na conta (usado na reconciliação de arranque). */
   async openContracts(): Promise<
     Array<{ contractId: number; symbol: string; contractType: string; buyPrice: number; longcode: string; dateStart: number }>
