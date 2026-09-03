@@ -445,6 +445,76 @@ const goldFimathe: Strategy = {
 };
 
 // ============================================================================
+// 8) gold_m1_hf_scalp — scalping AGRESSIVO de alta frequência no M1 (spec do usuário).
+//    Momentum: EMA5 x EMA13 + RSI(7). Entrada: rompimento da máx/mín local de
+//    `breakoutLookback` velas COM expansão de volatilidade (range da vela entre
+//    expandMult e newsMult vezes o ATR — precisa expandir, mas não pode ser um
+//    spike de notícia). Stop curto fixo (stopPips*pipValue, com piso 0.5*ATR e
+//    teto maxStopUsd), alvo = rr*stop. Trailing (via manageStop do bot). Só nas
+//    aberturas de Londres e NY; pula a janela do NFP (1ª sexta, ~12:15-13:15 UTC).
+// ============================================================================
+const goldM1HfScalp: Strategy = {
+  name: "gold_m1_hf_scalp",
+  warmup: 30,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const emaFastP = Math.round(p.emaFast ?? 5);
+    const emaSlowP = Math.round(p.emaSlow ?? 13);
+    const rsiP = Math.round(p.rsiPeriod ?? 7);
+    const rsiBuyMax = p.rsiBuyMax ?? 72;
+    const rsiSellMin = p.rsiSellMin ?? 28;
+    const brk = Math.round(p.breakoutLookback ?? 5);
+    const expandMult = p.expandMult ?? 1.2;
+    const newsMult = p.newsMult ?? 3.0;
+    const atrP = Math.round(p.atrPeriod ?? 14);
+    const pipValue = p.pipValue ?? 0.1; // 1 "pip" de ouro ≈ $0.10 (convenção retail)
+    const stopPips = p.stopPips ?? 7;
+    const maxStopUsd = p.maxStopUsd ?? 2.5;
+    const rr = p.rr ?? 1.75;
+    const mult = p.multiplier ?? 100;
+    const lonS = p.tradeStart ?? 7, lonE = p.tradeEnd ?? 10; // abertura de Londres
+    const nyS = p.tradeStart2 ?? 12, nyE = p.tradeEnd2 ?? 15; // abertura de NY
+
+    const m1 = ctx.candles;
+    if (m1.length < Math.max(emaSlowP, brk, atrP) + 6) return null;
+
+    const now = m1[m1.length - 1]!; // vela M1 de sinal (recém-fechada)
+    const dt = new Date(now.epoch * 1000);
+    const hf = dt.getUTCHours() + dt.getUTCMinutes() / 60;
+    if (!inWin(hf, lonS, lonE) && !inWin(hf, nyS, nyE)) return null;
+    // pula a janela do NFP (1ª sexta-feira do mês, ~12:15–13:15 UTC)
+    if (dt.getUTCDay() === 5 && dt.getUTCDate() <= 7 && hf >= 12.25 && hf <= 13.25) return null;
+
+    const closes = m1.map((c) => c.close);
+    const eF = ema(closes, emaFastP);
+    const eS = ema(closes, emaSlowP);
+    const rv = rsi(closes, rsiP);
+    const rvPrev = rsi(closes.slice(0, -1), rsiP);
+    const a = atr(m1.slice(-(atrP + 5)), atrP);
+    if (eF == null || eS == null || rv == null || rvPrev == null || a == null || a <= 0) return null;
+
+    const ratio = (now.high - now.low) / a;
+    if (ratio < expandMult || ratio > newsMult) return null;
+
+    const win = m1.slice(-1 - brk, -1);
+    const hi = Math.max(...win.map((c) => c.high));
+    const lo = Math.min(...win.map((c) => c.low));
+
+    const stopDistance = Math.min(maxStopUsd, Math.max(stopPips * pipValue, 0.5 * a));
+
+    if (eF > eS && rv > rvPrev && rv < rsiBuyMax && now.close > hi) {
+      return { contractType: "MULTUP", durationTicks: 0, tag: "hf_buy", multiplier: mult, stopDistance, rr };
+    }
+    if (eF < eS && rv < rvPrev && rv > rsiSellMin && now.close < lo) {
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "hf_sell", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // 7) gold_h1_trend — seguimento de tendência no H1 (spec do usuário).
 //    Lê a tendência com EMA50 + EMA200 (H1), o momentum com RSI, e filtra
 //    mercado morto / caos extremo com ATR(H1) em % do preço.
@@ -610,6 +680,7 @@ for (const s of [
   goldTrendScalp,
   goldFimathe,
   goldH1Trend,
+  goldM1HfScalp,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {
