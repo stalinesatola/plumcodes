@@ -793,7 +793,7 @@ function renderBots(m: Model, W: number, H: number, cfg: any, buf: string[]): vo
 function renderStats(m: Model, W: number, H: number, buf: string[]): void {
   const cl = m.trades.closed.slice(-100);
   const bw = Math.min(84, W - 6);
-  const bh = Math.min(30, H - 4);
+  const bh = Math.min(38, H - 4);
   const bx = Math.floor((W - bw) / 2) + 1;
   const by = Math.floor((H - bh) / 2) + 1;
   const r: Rect = { x: bx, y: by, w: bw, h: bh };
@@ -825,12 +825,13 @@ function renderStats(m: Model, W: number, H: number, buf: string[]): void {
   }
   y++;
   buf.push(put(r, y++, 0, `${T.title}por setup${RESET}`));
-  for (const [tag, t] of s.byTag.slice(0, 5)) {
+  for (const [tag, t] of s.byTag) {
+    if (y >= r.h - 2 - Math.min(s.byBot.length + 2, 16)) break;
     buf.push(put(r, y++, 0, `${T.dim}${pad(tag, 16)}${RESET}${pad(`${t.n}t`, 6)}${T.dim}${pad(per(t.w / t.n), 8)}${RESET}${col(t.r)}${sr(t.r)}${RESET}`));
   }
   y++;
-  buf.push(put(r, y++, 0, `${T.title}por bot${RESET}`));
-  for (const [bot, t] of s.byBot.slice(0, 5)) {
+  buf.push(put(r, y++, 0, `${T.title}por bot${RESET}  ${T.dim}(${s.byBot.length})${RESET}`));
+  for (const [bot, t] of s.byBot) {
     if (y >= r.h - 2) break;
     buf.push(put(r, y++, 0, `${T.dim}${pad(bot, 16)}${RESET}${pad(`${t.n}t`, 6)}${T.dim}${pad(per(t.w / t.n), 8)}${RESET}${col(t.r)}${sr(t.r)}${RESET}`));
   }
