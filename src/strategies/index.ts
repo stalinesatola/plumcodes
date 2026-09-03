@@ -1,5 +1,5 @@
 import type { Strategy, StrategyContext, TradeIntent, Candle } from "../types.ts";
-import { sma, ema, rsi, stochastic } from "../util/indicators.ts";
+import { sma, ema, rsi, stochastic, heikinAshi } from "../util/indicators.ts";
 
 // ============================================================================
 // RESET 2026-08-30 — foco em Gold/USD (frxXAUUSD), mercado real.
@@ -581,6 +581,94 @@ const goldH1Trend: Strategy = {
 };
 
 // ============================================================================
+// 9) gold_ha_channel — canal 55-MA(High)/55-MA(Low) + Heikin Ashi (spec do usuário).
+//    - Canal = SMA(55) dos highs e SMA(55) dos lows. NÃO opera dentro do canal.
+//    - COMPRA: preço rompe acima da 55-MA(High) com vela Heikin Ashi VERDE.
+//      VENDA: rompe abaixo da 55-MA(Low) com vela HA VERMELHA.
+//    - Filtro HTF (opcional, htfFilter): SMA(200) no H1 — só compra acima, só vende abaixo.
+//    - Stop = max(ATR*2.5, além da mínima/máxima da vela anterior). Alvo rr 1.5.
+//      "Após 1:1.5 mover p/ break-even" -> manageStop breakEvenAtR 1.5 + trailing folgado.
+//    - Sessões: Ásia (0-9 UTC) + NY (12-21 UTC).
+//    tf: 300 = M5 (padrão), 60 = M1.
+// ============================================================================
+const goldHaChannel: Strategy = {
+  name: "gold_ha_channel",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const maP = Math.round(p.maPeriod ?? 55);
+    const tfSec = Math.round(p.tf ?? 300);
+    const atrP = Math.round(p.atrPeriod ?? 14);
+    const atrMult = p.stopAtrMult ?? 2.5;
+    const rr = p.rr ?? 1.5;
+    const mult = p.multiplier ?? 100;
+    const htfFilter = (p.htfFilter ?? 1) !== 0;
+    const htfMaP = Math.round(p.htfMaPeriod ?? 200);
+    const asiaS = p.tradeStart ?? 0, asiaE = p.tradeEnd ?? 9;
+    const nyS = p.tradeStart2 ?? 12, nyE = p.tradeEnd2 ?? 21;
+
+    const m1 = ctx.candles;
+    const tf = rs(m1, tfSec);
+    const closedTf = tfSec <= 60 ? tf : tf.slice(0, -1);
+    if (closedTf.length < maP + 6) return null;
+
+    const now = m1[m1.length - 1]!;
+    const hf = hourUTC(now.epoch) + new Date(now.epoch * 1000).getUTCMinutes() / 60;
+    if (!inWin(hf, asiaS, asiaE) && !inWin(hf, nyS, nyE)) return null;
+
+    const maHigh = sma(closedTf.map((c) => c.high), maP);
+    const maLow = sma(closedTf.map((c) => c.low), maP);
+    if (maHigh == null || maLow == null) return null;
+
+    const price = now.close;
+    const lastTf = closedTf[closedTf.length - 1]!;
+    const prevTf = closedTf[closedTf.length - 2]!;
+
+    // filtro do canal — não opera dentro
+    if (price >= maLow && price <= maHigh) return null;
+
+    const ha = heikinAshi(closedTf.slice(-40));
+    const ha0 = ha[ha.length - 1]!;
+    const ha1 = ha[ha.length - 2]!;
+    const green = ha0.close > ha0.open;
+    const red = ha0.close < ha0.open;
+    const wasGreen = ha1.close > ha1.open;
+    const wasRed = ha1.close < ha1.open;
+
+    const a = atr(closedTf.slice(-(atrP + 5)), atrP);
+    if (a == null || a <= 0) return null;
+
+    let htfOkBuy = true;
+    let htfOkSell = true;
+    if (htfFilter && ctx.h1 && ctx.h1.length >= htfMaP) {
+      const htfMa = sma(
+        ctx.h1.map((c) => c.close),
+        htfMaP,
+      );
+      if (htfMa != null) {
+        htfOkBuy = price > htfMa;
+        htfOkSell = price < htfMa;
+      }
+    }
+
+    // COMPRA: rompeu acima da 55-MA(High) (fresco) + HA verde + HTF ok
+    const brokeUp = lastTf.close > maHigh && prevTf.close <= maHigh;
+    if ((brokeUp || (price > maHigh && !wasGreen && green)) && green && htfOkBuy) {
+      const stopDistance = Math.max(atrMult * a, price - lastTf.low + 0.1 * a);
+      return { contractType: "MULTUP", durationTicks: 0, tag: "ha_buy", multiplier: mult, stopDistance, rr };
+    }
+    const brokeDn = lastTf.close < maLow && prevTf.close >= maLow;
+    if ((brokeDn || (price < maLow && !wasRed && red)) && red && htfOkSell) {
+      const stopDistance = Math.max(atrMult * a, lastTf.high - price + 0.1 * a);
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "ha_sell", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -681,6 +769,7 @@ for (const s of [
   goldFimathe,
   goldH1Trend,
   goldM1HfScalp,
+  goldHaChannel,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {

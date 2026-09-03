@@ -141,6 +141,25 @@ export function momentum(values: number[], lookback: number): number | null {
   return (now - past) / past;
 }
 
+/** Converte candles normais em Heikin Ashi (mesma ordem: mais antigo -> mais recente). */
+export function heikinAshi(
+  cs: Array<{ open: number; high: number; low: number; close: number }>,
+): Array<{ open: number; high: number; low: number; close: number }> {
+  const out: Array<{ open: number; high: number; low: number; close: number }> = [];
+  for (let i = 0; i < cs.length; i++) {
+    const c = cs[i]!;
+    const haClose = (c.open + c.high + c.low + c.close) / 4;
+    const haOpen = i === 0 ? (c.open + c.close) / 2 : (out[i - 1]!.open + out[i - 1]!.close) / 2;
+    out.push({
+      open: haOpen,
+      close: haClose,
+      high: Math.max(c.high, haOpen, haClose),
+      low: Math.min(c.low, haOpen, haClose),
+    });
+  }
+  return out;
+}
+
 /** ADX (Wilder) — força da tendência (0-100). Candles do mais antigo -> mais recente.
  *  ADX > ~25 = mercado direcional; < ~20 = lateral. Precisa de ~2*period+1 candles. */
 export function adx(

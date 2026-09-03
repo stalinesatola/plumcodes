@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 9,
+    "maxConcurrentBots": 10,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -413,6 +413,46 @@
         "trailGapR": 0.35
       },
       "botDailyStopPct": 4,
+      "botLossStreakStop": 4
+    },
+    {
+      "//": "Canal 55-MA(High)/55-MA(Low) + Heikin Ashi (spec do usuario). NAO opera dentro do canal. COMPRA no rompimento da 55-MA(High) com vela HA verde / VENDA abaixo da 55-MA(Low) com HA vermelha. Filtro HTF: SMA(200) no H1 (so compra acima, so vende abaixo). Stop = max(ATR*2.5, alem da vela anterior), rr 1.5, apos 1:1.5 vai p/ break-even. Sessoes: Asia (0-9 UTC) + NY (12-21 UTC). tf M5.",
+      "id": "xau-ha",
+      "enabled": true,
+      "strategy": "gold_ha_channel",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 2,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "maPeriod": 55,
+        "tf": 300,
+        "atrPeriod": 14,
+        "stopAtrMult": 2.5,
+        "rr": 1.5,
+        "htfFilter": 1,
+        "htfMaPeriod": 200,
+        "tradeStart": 0,
+        "tradeEnd": 9,
+        "tradeStart2": 12,
+        "tradeEnd2": 21,
+        "multiplier": 100
+      },
+      "riskPerTradePct": 0.5,
+      "maxHoldMinutes": 120,
+      "minMinutesBetweenTrades": 15,
+      "manageStop": {
+        "breakEvenAtR": 1.5,
+        "trailAfterR": 1.5,
+        "trailGapR": 1
+      },
+      "botDailyStopPct": 3,
       "botLossStreakStop": 4
     }
   ]
