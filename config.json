@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 7,
+    "maxConcurrentBots": 8,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -327,6 +327,47 @@
         "trailGapR": 0.9
       },
       "botStopLossUsd": 500
+    },
+    {
+      "//": "XAUUSD no H1 (spec do usuario). Tendencia = EMA50 + EMA200 (H1). Momentum = RSI(14) forte E na direcao. Filtro de volatilidade = ATR(H1) entre 0.15% e 1.2% do preco (ignora mercado morto e caos). COMPRA acima das 2 EMAs / VENDA abaixo. Risco: 1% por trade (riskPerTradePct, sizing classico), drawdown diario 4% (botDailyStopPct), desliga apos 3 perdas seguidas (botLossStreakStop).",
+      "id": "xau-h1",
+      "enabled": true,
+      "strategy": "gold_h1_trend",
+      "symbol": "frxXAUUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 2,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "emaFast": 50,
+        "emaSlow": 200,
+        "rsiPeriod": 14,
+        "rsiBull": 55,
+        "rsiBear": 45,
+        "atrPeriod": 14,
+        "atrMinPct": 0.0015,
+        "atrMaxPct": 0.012,
+        "stopAtrMult": 1.5,
+        "rr": 2,
+        "tradeStart": 0,
+        "tradeEnd": 24,
+        "multiplier": 100
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 300,
+      "minMinutesBetweenTrades": 90,
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.5,
+        "trailGapR": 0.7
+      },
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 3
     }
   ]
 }

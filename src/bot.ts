@@ -58,6 +58,8 @@ export class Bot {
   private lastEntryMs = 0; // cooldown entre entradas do mesmo bot
   private riskCfg: AppConfig["risk"] | null = null;
   private resumeSeen = 0; // ts do último "resume" do monitor ([b]) já aplicado
+  private dayStartBalance = 0; // saldo no início do dia UTC (p/ botDailyStopPct)
+  private consecLosses = 0; // perdas seguidas do dia (p/ botLossStreakStop)
 
   // filtro de estrutura diaria (zonas H1 + vies) — compartilhado por todos os bots
   private h1: CandleAggregator | null = null;
@@ -105,7 +107,10 @@ export class Bot {
     this.riskCfg = opts.riskCfg ?? null;
     this.log = createLogger(`bot:${this.id}`);
     // 700 velas M1 (~46 M15) — suficiente para ADX(M15,14)
-    if (this.strat.kind === "candle") this.candles = new CandleAggregator(60, 700);
+    if (this.strat.kind === "candle") {
+      this.candles = new CandleAggregator(60, 700);
+      this.h1 = new CandleAggregator(3600, 320); // ~13 dias de H1 (EMA200, estrutura)
+    }
 
     const sc = opts.structureCfg;
     if (sc?.enabled) {
@@ -120,7 +125,9 @@ export class Bot {
       };
       this.structMode = sc.mode ?? "block-counter";
       this.structBandK = sc.zoneBandK ?? 1.2;
-      this.h1 = new CandleAggregator(3600, this.structCfg.invalLookback + 40);
+      if (this.structCfg.invalLookback + 40 > 320) {
+        this.h1 = new CandleAggregator(3600, this.structCfg.invalLookback + 40);
+      }
     }
 
     this.restoreDayState();
@@ -138,6 +145,8 @@ export class Bot {
     this.dayTrades = s.dayTrades;
     this.realizedPnl = s.realizedPnl;
     this.lastEntryMs = s.lastEntryMs ?? 0;
+    this.consecLosses = s.consecLosses ?? 0;
+    this.dayStartBalance = s.dayStartBalance ?? 0;
     this.log.info(
       `contadores do dia retomados: ${s.dayWins}W/${s.dayLosses}L/${s.dayTrades}t pnl $${s.realizedPnl.toFixed(2)}`,
     );
@@ -152,6 +161,8 @@ export class Bot {
       stopped: this.stopped,
       stopReason: this.stopReason,
       lastEntryMs: this.lastEntryMs,
+      consecLosses: this.consecLosses,
+      dayStartBalance: this.dayStartBalance,
     });
   }
 
@@ -175,16 +186,20 @@ export class Bot {
     this.log.info(`seed ${candles.length} candles M1${this.adxM15 != null ? ` · ADX(M15)=${this.adxM15.toFixed(1)}` : ""}`);
   }
 
-  /** Semeia o histórico H1 usado pelo filtro de estrutura diária. */
+  /** Semeia o histórico H1 (usado pelo filtro de estrutura e por estratégias H1). */
   seedH1(candles: Candle[]) {
-    if (!this.h1 || !this.structCfg) return;
+    if (!this.h1) return;
     this.h1.seed(candles);
-    this.structure = computeStructure(this.h1.closed, this.structCfg);
-    if (this.structure) {
-      const s = this.structure;
-      this.log.info(
-        `estrutura: viés ${s.bias} · S1 ${s.s1.toFixed(2)} R1 ${s.r1.toFixed(2)} · S2 ${s.s2.toFixed(2)} R2 ${s.r2.toFixed(2)} · inval ${s.invalLow.toFixed(2)}`,
-      );
+    if (this.structCfg) {
+      this.structure = computeStructure(this.h1.closed, this.structCfg);
+      if (this.structure) {
+        const s = this.structure;
+        this.log.info(
+          `estrutura: viés ${s.bias} · S1 ${s.s1.toFixed(2)} R1 ${s.r1.toFixed(2)} · S2 ${s.s2.toFixed(2)} R2 ${s.r2.toFixed(2)} · inval ${s.invalLow.toFixed(2)}`,
+        );
+      }
+    } else {
+      this.log.info(`seed ${this.h1.closed.length} candles H1`);
     }
   }
 
@@ -195,11 +210,14 @@ export class Bot {
 
   private rollDay() {
     const key = new Date().toISOString().slice(0, 10);
+    if (!this.dayStartBalance && this.risk.balance > 0) this.dayStartBalance = this.risk.balance;
     if (key !== this.dayKey) {
       this.dayKey = key;
       this.dayWins = this.dayLosses = this.dayTrades = 0;
       this.realizedPnl = 0; // P/L do bot e DIARIO (botStopLossUsd/botTakeProfitUsd)
-      if (this.stopped && /^(daily|bot (take-profit|stop-loss))/.test(this.stopReason)) {
+      this.consecLosses = 0;
+      this.dayStartBalance = this.risk.balance || this.dayStartBalance;
+      if (this.stopped && /^(daily|bot )/.test(this.stopReason)) {
         this.stopped = false;
         this.log.info(`novo dia ${key}: limites diarios resetados, bot reativado`);
       }
@@ -242,6 +260,7 @@ export class Bot {
       defaultDurationTicks: this.cfg.durationTicks,
       structure: this.structure,
       adxM15: this.adxM15,
+      h1: this.h1?.closed ?? [],
     };
   }
 
@@ -261,8 +280,8 @@ export class Bot {
       this.adxM15 = adx(m15, this.cfg.regimeAdx?.period ?? 14);
     }
 
-    // estrutura diária: recalcula a cada barra H1 fechada
-    if (this.h1 && this.structCfg && this.h1.add(quote, epoch) !== null) {
+    // agrega H1; recalcula a estrutura a cada barra H1 fechada
+    if (this.h1 && this.h1.add(quote, epoch) !== null && this.structCfg) {
       this.structure = computeStructure(this.h1.closed, this.structCfg) ?? this.structure;
     }
 
@@ -590,9 +609,11 @@ export class Bot {
     if (isWin) {
       this.wins++;
       this.dayWins++;
+      this.consecLosses = 0;
     } else {
       this.losses++;
       this.dayLosses++;
+      this.consecLosses++;
     }
 
     const mg = this.cfg.stake.martingale;
@@ -629,9 +650,15 @@ export class Bot {
     );
 
     const cap = this.dailyCapHit();
+    const ddPct = this.cfg.botDailyStopPct;
+    const ddLimit = ddPct && this.dayStartBalance > 0 ? (this.dayStartBalance * ddPct) / 100 : 0;
     if (cap) this.stop(cap);
     else if (this.cfg.botStopLossUsd && this.realizedPnl <= -Math.abs(this.cfg.botStopLossUsd))
       this.stop(`bot stop-loss ${this.realizedPnl.toFixed(2)}`);
+    else if (ddLimit && this.realizedPnl <= -ddLimit)
+      this.stop(`bot daily drawdown ${this.realizedPnl.toFixed(2)} (-${ddPct}% de $${this.dayStartBalance.toFixed(0)})`);
+    else if (this.cfg.botLossStreakStop && this.consecLosses >= this.cfg.botLossStreakStop)
+      this.stop(`bot loss streak ${this.consecLosses}`);
     else if (this.cfg.botTakeProfitUsd && this.realizedPnl >= Math.abs(this.cfg.botTakeProfitUsd))
       this.stop(`bot take-profit ${this.realizedPnl.toFixed(2)}`);
 

@@ -445,6 +445,72 @@ const goldFimathe: Strategy = {
 };
 
 // ============================================================================
+// 7) gold_h1_trend — seguimento de tendência no H1 (spec do usuário).
+//    Lê a tendência com EMA50 + EMA200 (H1), o momentum com RSI, e filtra
+//    mercado morto / caos extremo com ATR(H1) em % do preço.
+//      COMPRA: preço acima das DUAS EMAs, EMA50 > EMA200, RSI forte (>= rsiBull)
+//              e subindo, ATR dentro da faixa "viva".
+//      VENDA: preço abaixo das DUAS EMAs, EMA50 < EMA200, RSI fraco (<= rsiBear)
+//             e caindo, ATR dentro da faixa.
+//    Fora dessas condições (ex.: preço entre as EMAs, RSI neutro, ATR baixo) o
+//    bot NÃO opera — é o "ignora o ouro quando está só oscilando".
+//    Stop = stopAtrMult * ATR(H1); alvo = rr * stop.
+// ============================================================================
+const goldH1Trend: Strategy = {
+  name: "gold_h1_trend",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const emaFastP = Math.round(p.emaFast ?? 50);
+    const emaSlowP = Math.round(p.emaSlow ?? 200);
+    const rsiP = Math.round(p.rsiPeriod ?? 14);
+    const rsiBull = p.rsiBull ?? 55;
+    const rsiBear = p.rsiBear ?? 45;
+    const atrP = Math.round(p.atrPeriod ?? 14);
+    const atrMinPct = p.atrMinPct ?? 0.0015; // < isto = mercado morto
+    const atrMaxPct = p.atrMaxPct ?? 0.012; // > isto = caos / news extremo
+    const stopAtrMult = p.stopAtrMult ?? 1.5;
+    const rr = p.rr ?? 2.0;
+    const mult = p.multiplier ?? 100;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const h1 = ctx.h1;
+    if (!h1 || h1.length < emaSlowP + rsiP + 3) return null;
+    const h = hourUTC(ctx.candles[ctx.candles.length - 1]?.epoch ?? 0);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const closes = h1.map((c) => c.close);
+    const price = ctx.price || closes[closes.length - 1]!;
+
+    const eF = ema(closes, emaFastP);
+    const eS = ema(closes, emaSlowP);
+    const rv = rsi(closes, rsiP);
+    const rvPrev = rsi(closes.slice(0, -1), rsiP);
+    const a = atr(h1.slice(-(atrP + 5)), atrP);
+    if (eF == null || eS == null || rv == null || rvPrev == null || a == null || a <= 0) return null;
+
+    // filtro de volatilidade
+    const atrPct = a / price;
+    if (atrPct < atrMinPct || atrPct > atrMaxPct) return null;
+
+    const stopDistance = stopAtrMult * a;
+    const rsiRising = rv > rvPrev;
+    const rsiFalling = rv < rvPrev;
+
+    if (price > eF && price > eS && eF > eS && rv >= rsiBull && rsiRising) {
+      return { contractType: "MULTUP", durationTicks: 0, tag: "h1_buy", multiplier: mult, stopDistance, rr };
+    }
+    if (price < eF && price < eS && eF < eS && rv <= rsiBear && rsiFalling) {
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "h1_sell", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -543,6 +609,7 @@ for (const s of [
   goldNyMomo,
   goldTrendScalp,
   goldFimathe,
+  goldH1Trend,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {

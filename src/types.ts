@@ -80,6 +80,11 @@ export interface BotConfig {
   botStopLossUsd?: number;
   /** [Opcional] para o bot no dia ao atingir +este P/L. Ausente = não para no lucro. */
   botTakeProfitUsd?: number;
+  /** [Opcional] para o bot no dia se o P/L do dia cair abaixo de -X% do saldo de
+   *  abertura do dia (drawdown diário por bot, ex.: 4). */
+  botDailyStopPct?: number;
+  /** [Opcional] desliga o bot no dia após N perdas SEGUIDAS (ex.: 3). */
+  botLossStreakStop?: number;
   /** [Opcional] % do saldo arriscada por trade (usado por estrategias de multiplicador). */
   riskPerTradePct?: number;
   /** [Opcional] limites diarios de scalping: para o bot ate o proximo dia UTC. */
@@ -156,6 +161,8 @@ export interface StrategyContext {
   structure?: import("./util/structure.ts").DailyStructure | null;
   /** [Opcional] ADX(M15) atual — forca da tendencia (regime) */
   adxM15?: number | null;
+  /** [Opcional] candles H1 fechados (~13 dias) — p/ estrategias de timeframe alto */
+  h1?: Candle[];
 }
 
 export interface Strategy {

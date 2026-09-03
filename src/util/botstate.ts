@@ -18,6 +18,8 @@ export interface BotDay {
   stopped: boolean;
   stopReason: string;
   lastEntryMs?: number; // p/ o cooldown sobreviver a um restart
+  consecLosses?: number;
+  dayStartBalance?: number;
 }
 
 interface DayFile {

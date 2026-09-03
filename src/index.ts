@@ -115,9 +115,9 @@ async function main() {
         const ohlc = await client.candlesOHLC(symbol, 700, 60); // ~46 M15 p/ ADX(M15)
         for (const b of group) if (b.needsCandles()) b.seedCandles(ohlc);
       }
-      // histórico H1 p/ o filtro de estrutura diária (zonas de 5-10 dias)
-      if (cfg.structure?.enabled) {
-        const nH1 = (cfg.structure.invalLookback ?? 240) + 40;
+      // histórico H1 (estrutura diária + estratégias de timeframe alto, ex. EMA200)
+      if (group.some((b) => b.needsCandles())) {
+        const nH1 = Math.max(320, (cfg.structure?.invalLookback ?? 240) + 40);
         const h1 = await client.candlesOHLC(symbol, nH1, 3600);
         for (const b of group) b.seedH1(h1);
       }
