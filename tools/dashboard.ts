@@ -337,6 +337,7 @@ interface OpenPos {
   slPrice: number;
   tpPrice: number;
   ts: number;
+  sym?: string; // símbolo do contrato (frxXAUUSD, cryBTCUSD, …)
   slNote?: string; // ex.: "break-even @ +1.0R" quando o stop foi movido
 }
 interface ClosedTrade {
@@ -350,9 +351,12 @@ interface ClosedTrade {
   dir?: "up" | "down";
   entry?: number;
 }
-function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
+function loadTrades(cfg?: any): { open: OpenPos[]; closed: ClosedTrade[] } {
   const open: OpenPos[] = [];
   const closed: ClosedTrade[] = [];
+  const tradedSyms = new Set<string>(
+    [GOLD_SYMBOL, ...((cfg?.bots ?? []).map((b: any) => b.symbol).filter(Boolean) as string[])],
+  );
   try {
     if (!existsSync("data/trades.jsonl")) return { open, closed };
     const lines = readFileSync("data/trades.jsonl", "utf8").trim().split("\n").slice(-800);
@@ -390,11 +394,11 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
     }
     for (const [id, o] of opens) {
       if (closedIds.has(id)) continue;
-      // ignora "abertos" órfãos: símbolo que não operamos mais (índices antigos) ou
-      // idade absurda (> 6h; o maxHoldMinutes de qualquer bot é ≤ 45min, então um
-      // "open" sem "close" tão velho é lixo de um restart/queda de ligação).
-      if (o.symbol && o.symbol !== GOLD_SYMBOL) continue;
-      if (Date.now() - o.ts > 6 * 3600_000) continue;
+      // ignora "abertos" órfãos: símbolo que nenhum bot da config opera (índices
+      // antigos) ou idade absurda (> 12h — acima do maior maxHoldMinutes; um "open"
+      // sem "close" tão velho é lixo de um restart/queda de ligação).
+      if (o.symbol && !tradedSyms.has(o.symbol)) continue;
+      if (Date.now() - o.ts > 12 * 3600_000) continue;
       open.push({
         botId: o.botId,
         tag: o.tag,
@@ -404,6 +408,7 @@ function loadTrades(): { open: OpenPos[]; closed: ClosedTrade[] } {
         slPrice: o.slPrice,
         tpPrice: o.tpPrice,
         ts: o.ts,
+        sym: o.symbol,
         slNote: o.slNote,
       });
     }
@@ -600,10 +605,13 @@ function render(m: Model, cfg: any): void {
   buf.push(put(pr, pr.h - 3, pr.w - 24, `${T.dim}lo ${lo.toFixed(dec)}${RESET}`));
   buf.push(put(pr, pr.h - 3, 0, `${T.dim}${ser.length} ticks${RESET}`));
   // marcadores de posição aberta no gráfico
-  m.trades.open.slice(0, pr.h - 4).forEach((o, oi) => {
-    const arrow = o.dir === "up" ? T.green + "▲ LONG " : T.red + "▼ SHORT";
-    buf.push(put(pr, 1 + oi, pr.w - 24, `${arrow} @ ${o.entry.toFixed(dec)}${RESET}`));
-  });
+  m.trades.open
+    .filter((o) => (o.sym ?? GOLD_SYMBOL) === sym)
+    .slice(0, pr.h - 4)
+    .forEach((o, oi) => {
+      const arrow = o.dir === "up" ? T.green + "▲ LONG " : T.red + "▼ SHORT";
+      buf.push(put(pr, 1 + oi, pr.w - 24, `${arrow} @ ${o.entry.toFixed(dec)}${RESET}`));
+    });
 
   // ---- POSITIONS + HISTORY ----
   const midY = pTop + priceH;
@@ -617,17 +625,21 @@ function render(m: Model, cfg: any): void {
     buf.push(put(posR, 0, 0, `${T.dim}${pad("dir", 7)}${pad("entry", 11)}${pad("now / R", 13)}${pad("SL", 10)}${pad("TP", 10)}age${RESET}`));
     m.trades.open.slice(0, posR.h - 3).forEach((o, oi) => {
       const dcol = o.dir === "up" ? T.green : T.red;
-      const uR = o.stopDist > 0 ? ((last - o.entry) / o.stopDist) * (o.dir === "up" ? 1 : -1) : 0;
+      const rowSym = o.sym ?? GOLD_SYMBOL;
+      const rowLast = m.lastTick.get(rowSym) ?? (m.prices.get(rowSym)?.slice(-1)[0] ?? last);
+      const rowDec = 2;
+      const uR = o.stopDist > 0 && rowLast ? ((rowLast - o.entry) / o.stopDist) * (o.dir === "up" ? 1 : -1) : 0;
       const rcol = uR >= 0 ? T.green : T.red;
       const age = humanDur(Date.now() - o.ts).replace(/^0h /, "");
+      const tag = rowSym === GOLD_SYMBOL ? "" : (rowSym === "cryBTCUSD" ? "BTC " : rowSym.replace(/^(cry|frx)/, "") + " ");
       buf.push(
         put(
           posR,
           oi + 1,
           0,
-          `${dcol}${pad(o.dir === "up" ? "LONG" : "SHORT", 7)}${RESET}${T.text}${pad(o.entry.toFixed(dec), 11)}${RESET}` +
+          `${dcol}${pad(tag + (o.dir === "up" ? "LONG" : "SHORT"), 7)}${RESET}${T.text}${pad(o.entry.toFixed(rowDec), 11)}${RESET}` +
             `${rcol}${pad(`${uR >= 0 ? "+" : ""}${uR.toFixed(2)}R`, 13)}${RESET}` +
-            `${o.slNote ? T.green : T.dim}${pad(o.slPrice.toFixed(dec) + (o.slNote ? " ⇡" : ""), 10)}${T.dim}${pad(o.tpPrice.toFixed(dec), 10)}${age}${RESET}`,
+            `${o.slNote ? T.green : T.dim}${pad((o.slPrice ?? 0).toFixed(rowDec) + (o.slNote ? " ⇡" : ""), 10)}${T.dim}${pad((o.tpPrice ?? 0).toFixed(rowDec), 10)}${age}${RESET}`,
         ),
       );
     });
@@ -829,11 +841,15 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const once = args.includes("--once");
   const demo = args.includes("--demo"); // dados sintéticos, sem ligação — para docs/SVG
-  const symIdx = args.indexOf("--symbols");
-  const symbols =
-    symIdx >= 0 && args[symIdx + 1] ? args[symIdx + 1]!.split(",") : [GOLD_SYMBOL];
-
   let cfg = loadRiskCfg();
+  const symIdx = args.indexOf("--symbols");
+  const cfgSyms = [
+    ...new Set((cfg.bots ?? []).map((b: any) => b.symbol).filter(Boolean) as string[]),
+  ];
+  const symbols =
+    symIdx >= 0 && args[symIdx + 1]
+      ? args[symIdx + 1]!.split(",")
+      : [...new Set([GOLD_SYMBOL, ...cfgSyms])];
   const m: Model = {
     connected: false,
     accountId: "…",
@@ -846,7 +862,7 @@ async function main(): Promise<void> {
     lastTick: new Map(),
     logLines: loadLog(60),
     learn: loadLearn(),
-    trades: loadTrades(),
+    trades: loadTrades(cfg),
     market: null,
     goldDay: null,
     session: loadSession(),
@@ -1063,7 +1079,7 @@ async function main(): Promise<void> {
     cfg = loadRiskCfg(); // relê config.json (stop/take/etc mudam sem reiniciar o monitor)
     m.logLines = loadLog(60);
     m.learn = loadLearn();
-    m.trades = loadTrades();
+    m.trades = loadTrades(cfg);
     m.session = loadSession();
     m.botStatus = parseBotStatus(m.logLines);
   };
