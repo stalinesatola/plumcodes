@@ -248,7 +248,7 @@
       "botStopLossUsd": 500
     },
     {
-      "//": "Scalp de pullback a favor da tendencia M5 (EMA50 + Estocastico 14/3/3 + Bollinger 20/2 + candle de rejeicao). 24/7, ADX>=18, setup seletivo. [b] controla.",
+      "//": "SCALP em M1 (tf=60): EMA50(M1) + Estocastico 14/3/3(M1) + Bollinger 20/2(M1) + candle de rejeicao. Stop de scalp <= $2.5, alvo rr 1.5. maxHold 8min, cooldown 5min. Rapido e frequente.",
       "id": "xau-scalp",
       "enabled": true,
       "strategy": "gold_trend_scalp",
@@ -273,20 +273,21 @@
         "bbPeriod": 20,
         "bbK": 2,
         "wickRatio": 0.5,
-        "stopAtrMult": 1.2,
-        "maxStopUsd": 4,
+        "stopAtrMult": 1,
+        "maxStopUsd": 2.5,
         "tradeStart": 0,
         "tradeEnd": 24,
         "multiplier": 100,
-        "rr": 1.5
+        "rr": 1.5,
+        "tf": 60
       },
       "riskPerTradePct": 1,
-      "maxHoldMinutes": 15,
-      "minMinutesBetweenTrades": 10,
+      "maxHoldMinutes": 8,
+      "minMinutesBetweenTrades": 5,
       "manageStop": {
-        "breakEvenAtR": 0.8,
-        "trailAfterR": 1,
-        "trailGapR": 0.5
+        "breakEvenAtR": 0.6,
+        "trailAfterR": 0.9,
+        "trailGapR": 0.4
       },
       "botStopLossUsd": 500
     },

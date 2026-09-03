@@ -281,17 +281,18 @@ const goldTrendScalp: Strategy = {
     const rr = p.rr ?? 1.5;
     const stopAtrMult = p.stopAtrMult ?? 1.2;
     const maxStopUsd = p.maxStopUsd ?? 4.0; // teto do stop (scalp)
+    const tfSec = Math.round(p.tf ?? 300); // timeframe de análise: 300 = M5 (padrão), 60 = M1
     const hStart = p.tradeStart ?? 0;
     const hEnd = p.tradeEnd ?? 24;
 
     const m1 = ctx.candles;
-    const m5 = rs(m1, 300);
+    const tf = rs(m1, tfSec);
     const need = Math.max(emaP, bbP, kP + kSlow + dP) + 6;
-    if (m5.length < need || m1.length < 20) return null;
+    if (tf.length < need || m1.length < 20) return null;
     const h = hourUTC(m1[m1.length - 1]!.epoch);
     if (!inWin(h, hStart, hEnd)) return null;
 
-    const closed = m5.slice(0, -1); // barras M5 fechadas
+    const closed = tfSec <= 60 ? tf : tf.slice(0, -1); // barras fechadas do timeframe
     const last = closed[closed.length - 1]!; // candle de rejeição
     const cl = closed.map((c) => c.close);
     const price = m1[m1.length - 1]!.close;
@@ -331,7 +332,7 @@ const goldTrendScalp: Strategy = {
     const turningUp = s0.k > s1.k && Math.min(s0.k, s1.k, s2.k) <= stochOs && s0.k < 55;
     const turningDown = s0.k < s1.k && Math.max(s0.k, s1.k, s2.k) >= stochOb && s0.k > 45;
 
-    // COMPRA: preço acima da EMA50(M5) + estocástico saindo de sobrevenda +
+    // COMPRA: preço acima da EMA(timeframe) + estocástico saindo de sobrevenda +
     // candle de rejeição (pavio inferior longo, fechou na metade de cima) tocando
     // a banda inferior de Bollinger
     const rejectLow = lowerWick / range >= wickRatio && last.close >= last.low + range * 0.5 && last.low <= lower;
