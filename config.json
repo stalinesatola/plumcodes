@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 10,
+    "maxConcurrentBots": 12,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -531,6 +531,44 @@
       },
       "botDailyStopPct": 4,
       "botLossStreakStop": 3
+    },
+    {
+      "//": "BTC/USD seguidor de micro-tendencia: 1 EMA(20) no M1. Preco fecha acima -> COMPRA, abaixo -> VENDA (so na virada). Expiracao 2-5min = maxHoldMinutes 4. Meta diaria +7% (botDailyTpPct), stop diario -12% (botDailyStopPct). Recuperacao 1.5x (martingale factor 1.5, 2 passos). AVISO: multiplicador na Deriv (BTC so tem MULT) + stake pequeno = comissao pesa muito. Martingale e EV-negativo (FINDINGS.md). Forward-test em demo.",
+      "id": "btc-emaflip",
+      "enabled": true,
+      "strategy": "crypto_ema_flip",
+      "symbol": "cryBTCUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 20,
+        "martingale": {
+          "enabled": true,
+          "factor": 1.5,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "emaPeriod": 20,
+        "tf": 60,
+        "atrPeriod": 14,
+        "stopAtrMult": 1.5,
+        "rr": 1.5,
+        "flipOnly": 1,
+        "multiplier": 100,
+        "tradeStart": 0,
+        "tradeEnd": 24
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 4,
+      "minMinutesBetweenTrades": 3,
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.2,
+        "trailGapR": 0.6
+      },
+      "botDailyStopPct": 12,
+      "botDailyTpPct": 7,
+      "botLossStreakStop": 5
     }
   ]
 }

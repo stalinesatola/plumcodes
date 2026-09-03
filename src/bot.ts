@@ -617,7 +617,7 @@ export class Bot {
     }
 
     const mg = this.cfg.stake.martingale;
-    if (mg.enabled && !(meta?.isMultiplier)) {
+    if (mg.enabled) {
       this.martingaleStep = isWin ? 0 : Math.min(this.martingaleStep + 1, mg.maxSteps);
     }
 
@@ -652,6 +652,8 @@ export class Bot {
     const cap = this.dailyCapHit();
     const ddPct = this.cfg.botDailyStopPct;
     const ddLimit = ddPct && this.dayStartBalance > 0 ? (this.dayStartBalance * ddPct) / 100 : 0;
+    const tpPct = this.cfg.botDailyTpPct;
+    const tpLimit = tpPct && this.dayStartBalance > 0 ? (this.dayStartBalance * tpPct) / 100 : 0;
     if (cap) this.stop(cap);
     else if (this.cfg.botStopLossUsd && this.realizedPnl <= -Math.abs(this.cfg.botStopLossUsd))
       this.stop(`bot stop-loss ${this.realizedPnl.toFixed(2)}`);
@@ -659,6 +661,8 @@ export class Bot {
       this.stop(`bot daily drawdown ${this.realizedPnl.toFixed(2)} (-${ddPct}% de $${this.dayStartBalance.toFixed(0)})`);
     else if (this.cfg.botLossStreakStop && this.consecLosses >= this.cfg.botLossStreakStop)
       this.stop(`bot loss streak ${this.consecLosses}`);
+    else if (tpLimit && this.realizedPnl >= tpLimit)
+      this.stop(`bot daily take-profit +${this.realizedPnl.toFixed(2)} (+${tpPct}% de $${this.dayStartBalance.toFixed(0)})`);
     else if (this.cfg.botTakeProfitUsd && this.realizedPnl >= Math.abs(this.cfg.botTakeProfitUsd))
       this.stop(`bot take-profit ${this.realizedPnl.toFixed(2)}`);
 

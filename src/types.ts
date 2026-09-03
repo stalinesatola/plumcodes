@@ -83,6 +83,8 @@ export interface BotConfig {
   /** [Opcional] para o bot no dia se o P/L do dia cair abaixo de -X% do saldo de
    *  abertura do dia (drawdown diário por bot, ex.: 4). */
   botDailyStopPct?: number;
+  /** [Opcional] para o bot no dia ao atingir +X% do saldo de abertura (meta diária). */
+  botDailyTpPct?: number;
   /** [Opcional] desliga o bot no dia após N perdas SEGUIDAS (ex.: 3). */
   botLossStreakStop?: number;
   /** [Opcional] % do saldo arriscada por trade (usado por estrategias de multiplicador). */
