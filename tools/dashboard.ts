@@ -387,16 +387,19 @@ function loadTrades(cfg?: any): { open: OpenPos[]; closed: ClosedTrade[] } {
       } else if (e.ev === "close") {
         closedIds.add(e.contractId);
         const o = opens.get(e.contractId);
+        // só conta trades de um símbolo que operamos (ignora órfãos de restart e
+        // histórico de pares antigos que ficou no diário)
+        if (!o || !o.symbol || !tradedSyms.has(o.symbol)) continue;
         closed.push({
           ts: e.ts,
           botId: e.botId,
-          symbol: o?.symbol,
+          symbol: o.symbol,
           tag: e.tag,
           profit: e.profit,
           isWin: e.isWin,
           r: e.rMultiple ?? 0,
-          dir: o?.dir,
-          entry: o?.entry,
+          dir: o.dir,
+          entry: o.entry,
         });
       }
     }
