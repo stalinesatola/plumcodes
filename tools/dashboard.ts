@@ -1,13 +1,13 @@
 /**
  * dashboard.ts — monitor TUI estilo btop para o Deriv Quant Research Framework.
  *
- *   node --env-file=.env tools/dashboard.ts [--symbols frxXAUUSD] [--once]
+ *   node --env-file=.env tools/dashboard.ts [--symbols cryBTCUSD] [--once]
  *
  * Painéis (cantos arredondados, medidores em gradiente, gráfico braille):
  *  - account   saldo, P/L do dia dos bots vs stop/take, abertura da sessão,
  *              fecho da sessão anterior
- *  - risk+market  estado do risco + horário do mercado (aberto/fechado, aberto
- *                 há X, fecha em Y)
+ *  - risk+market  estado do risco + mercado BTC (24/7) + regime ADX
+ *  - volatilidade BTC  ATR 1h vs normal + perfil horário de volatilidade (UTC)
  *  - bots      por bot: janela UTC, estado (ANALISANDO / EM POSIÇÃO / FORA DA
  *              JANELA / PARADO / mercado fechado), há quanto analisa, W/L, R
  *  - price · active positions · history · learning · log
@@ -22,7 +22,14 @@ import { readFileSync, existsSync } from "node:fs";
 import { exec } from "node:child_process";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
-import { SESSIONS, sessionOpen, nextOpenMs, closeInMs, GOLD_SYMBOL } from "../src/util/markets.ts";
+import {
+  BTC_SYMBOL,
+  atrPct as ohlcAtrPct,
+  atrPctBaseline,
+  volRegime,
+  hourlyRangeProfile,
+  type OHLC,
+} from "../src/util/markets.ts";
 import { setBotEnabled, allBotEnabled } from "../src/util/controls.ts";
 
 // ------------------------------------------------------------------ ANSI / tema
@@ -185,7 +192,8 @@ interface Model {
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
-  goldDay: { open: number; prevClose: number } | null; // vela D1 do XAUUSD: abertura de hoje + fecho de ontem
+  btcDay: { open: number; prevClose: number } | null; // vela D1 do BTC/USD: abertura de hoje + fecho de ontem
+  btcVol: { atrPct: number | null; base: number | null; hourly: number[] } | null; // regime de volatilidade + perfil horário (H1)
   session: any;
   botStatus: { ts: number; bots: any[]; risk: any; structure: any } | null;
   monitorMode: "demo" | "real";
@@ -337,7 +345,7 @@ interface OpenPos {
   slPrice: number;
   tpPrice: number;
   ts: number;
-  sym?: string; // símbolo do contrato (frxXAUUSD, cryBTCUSD, …)
+  sym?: string; // símbolo do contrato (cryBTCUSD, …)
   slNote?: string; // ex.: "break-even @ +1.0R" quando o stop foi movido
 }
 interface ClosedTrade {
@@ -355,7 +363,7 @@ function loadTrades(cfg?: any): { open: OpenPos[]; closed: ClosedTrade[] } {
   const open: OpenPos[] = [];
   const closed: ClosedTrade[] = [];
   const tradedSyms = new Set<string>(
-    [GOLD_SYMBOL, ...((cfg?.bots ?? []).map((b: any) => b.symbol).filter(Boolean) as string[])],
+    [BTC_SYMBOL, ...((cfg?.bots ?? []).map((b: any) => b.symbol).filter(Boolean) as string[])],
   );
   try {
     if (!existsSync("data/trades.jsonl")) return { open, closed };
@@ -446,11 +454,10 @@ function render(m: Model, cfg: any): void {
   buf.push(at(1, 2) + pad(clip(head, W - 3), W - 3));
 
   const symbols = [...m.prices.keys()];
-  const sym0 = symbols.length ? symbols[m.priceIdx % symbols.length]! : "frxXAUUSD";
+  const sym0 = symbols.length ? symbols[m.priceIdx % symbols.length]! : BTC_SYMBOL;
   const top = 3;
   const PANEL_H = 11;
   const colW = Math.floor((W - 3) / 3);
-  const nowUtcH = new Date().getUTCHours() + new Date().getUTCMinutes() / 60;
 
   // pnl do dia = realizado pelos nossos bots (do bot status), não delta de saldo
   const dayPnl = m.botStatus?.risk?.pnlToday ?? 0;
@@ -480,18 +487,18 @@ function render(m: Model, cfg: any): void {
   } else {
     buf.push(put(acc, 5, 0, `${T.dim}saldo: sessão não iniciada${RESET}`));
   }
-  // linhas 6-7: OURO — vela D1 (abertura de hoje, fecho de ontem)
-  const gd = m.goldDay;
-  const gcur = m.lastTick.get(GOLD_SYMBOL) ?? (m.prices.get(GOLD_SYMBOL)?.slice(-1)[0] ?? 0);
+  // linhas 6-7: BTC/USD — vela D1 (abertura de hoje, fecho de ontem)
+  const gd = m.btcDay;
+  const gcur = m.lastTick.get(BTC_SYMBOL) ?? (m.prices.get(BTC_SYMBOL)?.slice(-1)[0] ?? 0);
   if (gd) {
     const gp = gd.open ? ((gcur - gd.open) / gd.open) * 100 : 0;
     const gpc = gp >= 0 ? T.green : T.red;
-    buf.push(put(acc, 6, 0, `${T.dim}ouro D1 ${T.text}${gd.open.toFixed(2)}${T.dim} → ${T.text}${gcur ? gcur.toFixed(2) : "—"} ${gpc}${gp >= 0 ? "+" : ""}${gp.toFixed(2)}%${RESET}`));
+    buf.push(put(acc, 6, 0, `${T.dim}BTC D1 ${T.text}${gd.open.toFixed(0)}${T.dim} → ${T.text}${gcur ? gcur.toFixed(0) : "—"} ${gpc}${gp >= 0 ? "+" : ""}${gp.toFixed(2)}%${RESET}`));
     const yd = gd.prevClose ? ((gd.open - gd.prevClose) / gd.prevClose) * 100 : 0;
     const ydc = yd >= 0 ? T.green : T.red;
-    buf.push(put(acc, 7, 0, `${T.dim}ontem fechou ${T.text}${gd.prevClose.toFixed(2)} ${ydc}${yd >= 0 ? "+" : ""}${yd.toFixed(2)}%${RESET}`));
+    buf.push(put(acc, 7, 0, `${T.dim}ontem fechou ${T.text}${gd.prevClose.toFixed(0)} ${ydc}${yd >= 0 ? "+" : ""}${yd.toFixed(2)}%${RESET}`));
   } else {
-    buf.push(put(acc, 6, 0, `${T.dim}ouro D1: (carregando…)${RESET}`));
+    buf.push(put(acc, 6, 0, `${T.dim}BTC D1: (carregando…)${RESET}`));
   }
 
   // ---- RISK + MARKET ----
@@ -508,8 +515,9 @@ function render(m: Model, cfg: any): void {
   buf.push(put(risk, 3, 0, `${T.dim}${sym0} mercado${RESET}`));
   if (mkt && ms) {
     if (ms.open) {
-      buf.push(put(risk, 4, 0, `  ${T.green}${BOLD}ABERTO${RESET}${T.dim}  aberto há ${T.text}${fmtShort(ms.sinceMs)}${RESET}`));
-      buf.push(put(risk, 5, 0, `  ${T.dim}fecha em ${T.yellow}${fmtShort(ms.untilMs)}${RESET}`));
+      buf.push(put(risk, 4, 0, `  ${T.green}${BOLD}ABERTO${RESET}${T.dim}  ${ms.untilMs > 48 * 3600_000 ? "24/7" : `aberto há ${fmtShort(ms.sinceMs)}`}${RESET}`));
+      if (ms.untilMs <= 48 * 3600_000)
+        buf.push(put(risk, 5, 0, `  ${T.dim}fecha em ${T.yellow}${fmtShort(ms.untilMs)}${RESET}`));
     } else {
       buf.push(put(risk, 4, 0, `  ${T.red}${BOLD}FECHADO${RESET}${T.dim}  ${ms.label}${RESET}`));
     }
@@ -535,31 +543,67 @@ function render(m: Model, cfg: any): void {
     buf.push(put(risk, 7, 0, `${T.dim}regime  ADX(M15) ${adxAvg >= 25 ? T.green : T.yellow}${adxAvg.toFixed(0)}${RESET}${T.dim} ${adxAvg >= 25 ? "tendência" : adxAvg < 22 ? "lateral" : "indefinido"}${RESET}`));
   }
 
-  // ---- SESSIONS — relógio das 5 praças (contexto p/ o XAUUSD) ----
+  // ---- VOLATILIDADE BTC — regime atual + perfil horário (o que importa p/ operar BTC) ----
   const strat: Rect = { x: 2 + colW * 2, y: top, w: W - 3 - colW * 2, h: PANEL_H };
-  buf.push(...box(strat, " sessions ", T.blue));
-  const now = new Date();
-  const sessRows = SESSIONS.map((s) => ({
-    s,
-    open: sessionOpen(s, now),
-    closeMs: closeInMs(s, now),
-    openMs: nextOpenMs(s, now),
-  }));
-  const overlap = sessRows.filter((r) => r.open).length >= 2;
-  sessRows.sort((a, b) => (a.open === b.open ? (a.open ? a.closeMs - b.closeMs : a.openMs - b.openMs) : a.open ? -1 : 1));
-
-  let sr = 0;
-  for (const r of sessRows) {
-    if (sr >= strat.h - 3) break;
-    const isNYorLDN = r.open && (r.s.key === "london" || r.s.key === "newyork");
-    const dotc = r.open ? (isNYorLDN && overlap ? T.yellow + "◆" : T.green + "●") : T.dim + "○";
-    const timing = r.open
-      ? `${T.green}aberto${RESET} ${T.dim}fecha ${fmtShort(r.closeMs)}`
-      : `${T.dim}fechado · abre ${fmtShort(r.openMs)}`;
-    buf.push(put(strat, sr++, 0, `${dotc}${RESET} ${T.text}${pad(r.s.label, 11)}${RESET}${timing}${RESET}`));
+  buf.push(...box(strat, " volatilidade BTC ", T.blue));
+  const vol = m.btcVol;
+  const nowH = new Date().getUTCHours();
+  if (vol && vol.atrPct != null) {
+    const reg = volRegime(vol.atrPct, vol.base);
+    const ratio = vol.base && vol.base > 0 ? vol.atrPct / vol.base : null;
+    const regCol =
+      reg === "morto" || reg === "calmo" ? T.yellow : reg === "extremo" ? T.red : reg === "agitado" ? T.mag : T.green;
+    buf.push(
+      put(
+        strat,
+        0,
+        0,
+        `${T.dim}ATR 1h ${T.text}${vol.atrPct.toFixed(2)}%${T.dim}  ·  normal ${T.text}${vol.base != null ? vol.base.toFixed(2) + "%" : "—"}${RESET}`,
+      ),
+    );
+    buf.push(
+      put(
+        strat,
+        1,
+        0,
+        `${T.dim}regime ${regCol}${BOLD}${(reg ?? "—").toUpperCase()}${RESET}${ratio != null ? `${T.dim}  ${ratio.toFixed(2)}×` : ""}${RESET}`,
+      ),
+    );
+    // perfil horário (média de range% por hora UTC, ~14d) — barras verticais
+    const hourly = vol.hourly ?? [];
+    const mx = Math.max(0.0001, ...hourly);
+    const blocks = "▁▂▃▄▅▆▇█";
+    let bar = "";
+    for (let h = 0; h < 24; h++) {
+      const lvl = Math.min(7, Math.max(0, Math.round((hourly[h]! / mx) * 7)));
+      const ch = blocks[lvl]!;
+      bar += h === nowH ? `${T.cyan}${ch}${RESET}` : `${gradAt(hourly[h]! / mx)}${ch}${RESET}`;
+      bar += " ";
+    }
+    buf.push(put(strat, 3, 0, `${T.dim}perfil horário (UTC, ~14d)${RESET}`));
+    buf.push(put(strat, 4, 0, bar));
+    // eixo: rótulos 00/06/12/18 + caret na hora atual (cada célula ocupa 2 cols)
+    const axisArr = new Array(48).fill(" ");
+    for (const h of [0, 6, 12, 18]) {
+      const s = String(h).padStart(2, "0");
+      axisArr[h * 2] = s[0];
+      axisArr[h * 2 + 1] = s[1];
+    }
+    if (axisArr[nowH * 2] === " ") axisArr[nowH * 2] = "^";
+    buf.push(put(strat, 5, 0, `${T.dim}${axisArr.join("")}${RESET}`));
+    // horas de pico
+    const ranked = hourly.map((v, h) => ({ v, h })).sort((a, b) => b.v - a.v).slice(0, 4).map((x) => x.h).sort((a, b) => a - b);
+    buf.push(
+      put(
+        strat,
+        6,
+        0,
+        `${T.dim}pico ${T.text}${ranked.map((h) => String(h).padStart(2, "0")).join(" ")}h${T.dim}  ·  agora ${T.text}${String(nowH).padStart(2, "0")}h${RESET}`,
+      ),
+    );
+  } else {
+    buf.push(put(strat, 0, 0, `${T.dim}(carregando candles H1 do BTC…)${RESET}`));
   }
-  const bothLN =
-    sessRows.find((r) => r.s.key === "london")?.open && sessRows.find((r) => r.s.key === "newyork")?.open;
   buf.push(put(strat, strat.h - 3, 0, `${T.border}${"─".repeat(strat.w - 4)}${RESET}`));
   const gcl = m.trades.closed;
   const gw = gcl.filter((c) => c.isWin).length;
@@ -569,18 +613,16 @@ function render(m: Model, cfg: any): void {
       strat,
       strat.h - 2,
       0,
-      bothLN
-        ? `${T.yellow}◆ overlap London+NY — vol. máx. do ouro${RESET}`
-        : gcl.length
-          ? `${T.dim}XAUUSD: ${T.text}${gcl.length}t${T.dim} · ${T.text}${((gw / gcl.length) * 100).toFixed(0)}%${T.dim} · ${gR >= 0 ? T.green : T.red}${gR >= 0 ? "+" : ""}${gR.toFixed(1)}R${RESET}`
-          : `${T.dim}XAUUSD: sem operações fechadas ainda${RESET}`,
+      gcl.length
+        ? `${T.dim}BTC: ${T.text}${gcl.length}t${T.dim} · ${T.text}${((gw / gcl.length) * 100).toFixed(0)}%${T.dim} · ${gR >= 0 ? T.green : T.red}${gR >= 0 ? "+" : ""}${gR.toFixed(1)}R${RESET}`
+        : `${T.dim}BTC: sem operações fechadas ainda${RESET}`,
     ),
   );
 
   const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
   const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
-  const dec = 2; // XAUUSD
+  const dec = 2; // cryBTCUSD
 
   // ---- PRICE (largo) ----
   const pTop = top + PANEL_H;
@@ -606,7 +648,7 @@ function render(m: Model, cfg: any): void {
   buf.push(put(pr, pr.h - 3, 0, `${T.dim}${ser.length} ticks${RESET}`));
   // marcadores de posição aberta no gráfico
   m.trades.open
-    .filter((o) => (o.sym ?? GOLD_SYMBOL) === sym)
+    .filter((o) => (o.sym ?? BTC_SYMBOL) === sym)
     .slice(0, pr.h - 4)
     .forEach((o, oi) => {
       const arrow = o.dir === "up" ? T.green + "▲ LONG " : T.red + "▼ SHORT";
@@ -620,18 +662,18 @@ function render(m: Model, cfg: any): void {
   buf.push(...box(posR, " active positions ", T.green));
   if (m.trades.open.length === 0) {
     buf.push(put(posR, 0, 0, `${T.dim}nenhuma posição aberta${RESET}`));
-    buf.push(put(posR, 1, 0, `${T.dim}(estratégias operam em janelas UTC — ver bots)${RESET}`));
+    buf.push(put(posR, 1, 0, `${T.dim}(bots ligam/desligam em [b])${RESET}`));
   } else {
     buf.push(put(posR, 0, 0, `${T.dim}${pad("dir", 7)}${pad("entry", 11)}${pad("now / R", 13)}${pad("SL", 10)}${pad("TP", 10)}age${RESET}`));
     m.trades.open.slice(0, posR.h - 3).forEach((o, oi) => {
       const dcol = o.dir === "up" ? T.green : T.red;
-      const rowSym = o.sym ?? GOLD_SYMBOL;
+      const rowSym = o.sym ?? BTC_SYMBOL;
       const rowLast = m.lastTick.get(rowSym) ?? (m.prices.get(rowSym)?.slice(-1)[0] ?? last);
       const rowDec = 2;
       const uR = o.stopDist > 0 && rowLast ? ((rowLast - o.entry) / o.stopDist) * (o.dir === "up" ? 1 : -1) : 0;
       const rcol = uR >= 0 ? T.green : T.red;
       const age = humanDur(Date.now() - o.ts).replace(/^0h /, "");
-      const tag = rowSym === GOLD_SYMBOL ? "" : (rowSym === "cryBTCUSD" ? "BTC " : rowSym.replace(/^(cry|frx)/, "") + " ");
+      const tag = rowSym === BTC_SYMBOL ? "" : rowSym.replace(/^(cry|frx)/, "") + " ";
       buf.push(
         put(
           posR,
@@ -721,7 +763,7 @@ function render(m: Model, cfg: any): void {
     m.monitorMode === "real" ? `${T.red}REAL${RESET}` : `${T.blue}DEMO${RESET}`;
   const mktLbl = m.market
     ? ms?.open
-      ? `${T.green}${sym0} ABERTO${RESET}${T.dim} · fecha ${fmtShort(ms.untilMs)}`
+      ? `${T.green}${sym0} ABERTO${RESET}${T.dim}${ms.untilMs > 48 * 3600_000 ? " · 24/7" : ` · fecha ${fmtShort(ms.untilMs)}`}`
       : `${T.red}${sym0} FECHADO${RESET}${T.dim} · ${ms?.label ?? ""}`
     : `${T.dim}mercado …`;
   const foot = m.restartMsg
@@ -733,7 +775,7 @@ function render(m: Model, cfg: any): void {
         : m.showStats
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
           : m.showBots
-            ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · x=XAU · c=BTC · [b] fechar${RESET}`
+            ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · a=todos · n=nenhum · [b] fechar${RESET}`
             : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [b] operar/bots   [k] reiniciar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
@@ -785,7 +827,7 @@ function renderBots(m: Model, W: number, H: number, cfg: any, buf: string[]): vo
     });
   }
   y++;
-  buf.push(put(r, y++, 0, `${T.dim}↑↓/j k mover · espaço liga/desliga · 1-9 direto · x=só XAU · c=só BTC${RESET}`));
+  buf.push(put(r, y++, 0, `${T.dim}↑↓/j k mover · espaço liga/desliga · 1-9 direto · a=todos · n=nenhum${RESET}`));
   buf.push(put(r, y++, 0, `${T.dim}desligar só impede NOVAS entradas — posição aberta segue o curso${RESET}`));
 }
 
@@ -850,7 +892,7 @@ async function main(): Promise<void> {
   const symbols =
     symIdx >= 0 && args[symIdx + 1]
       ? args[symIdx + 1]!.split(",")
-      : [...new Set([GOLD_SYMBOL, ...cfgSyms])];
+      : [...new Set([BTC_SYMBOL, ...cfgSyms])];
   const m: Model = {
     connected: false,
     accountId: "…",
@@ -865,7 +907,8 @@ async function main(): Promise<void> {
     learn: loadLearn(),
     trades: loadTrades(cfg),
     market: null,
-    goldDay: null,
+    btcDay: null,
+    btcVol: null,
     session: loadSession(),
     botStatus: parseBotStatus(loadLog(60)),
     monitorMode: cfg.account?.mode === "real" ? "real" : "demo",
@@ -888,28 +931,32 @@ async function main(): Promise<void> {
     m.connected = true;
     m.startedAt = now - 34 * 60000;
     m.accountId = "DOT94371782";
-    m.balance = 9948.6;
-    m.startBalance = 9945.88;
-    let px = 4431;
+    m.balance = 10248.6;
+    m.startBalance = 10145.88;
+    let px = 111200;
     const ser: number[] = [];
     for (let i = 0; i < 600; i++) {
-      px += Math.sin(i / 23) * 0.9 + (Math.random() - 0.5) * 1.4 + (i > 400 ? 0.04 : -0.02);
+      px += Math.sin(i / 23) * 28 + (Math.random() - 0.5) * 46 + (i > 400 ? 1.4 : -0.7);
       ser.push(Number(px.toFixed(2)));
     }
     m.priceIdx = 0;
-    m.prices.set("frxXAUUSD", ser);
-    m.lastTick.set("frxXAUUSD", ser[ser.length - 1]!);
+    m.prices.set(BTC_SYMBOL, ser);
+    m.lastTick.set(BTC_SYMBOL, ser[ser.length - 1]!);
     const midnight = Math.floor(now / 86400000) * 86400000;
     m.market = {
       open: true,
       live: true,
-      note: "Fridays: Closes early (at 20:55)",
-      intervals: [
-        { open: midnight / 1000, close: (midnight + 21 * 3600000) / 1000 },
-        { open: (midnight + 22 * 3600000) / 1000, close: (midnight + 86399000) / 1000 },
-      ],
+      note: "cryptos: 24/7",
+      intervals: [{ open: midnight / 1000, close: (midnight + 7 * 86400000) / 1000 }],
     };
-    m.goldDay = { open: 4433.1, prevClose: 4429.4 };
+    m.btcDay = { open: 110800, prevClose: 109450 };
+    m.btcVol = {
+      atrPct: 0.41,
+      base: 0.33,
+      hourly: Array.from({ length: 24 }, (_, h) =>
+        0.15 + 0.35 * Math.max(0, Math.sin(((h - 13) / 24) * Math.PI * 2)) + (h >= 13 && h <= 21 ? 0.25 : 0),
+      ),
+    };
     m.session = {
       openBalance: 9945.88,
       openTs: now - 9_600_000,
@@ -923,39 +970,41 @@ async function main(): Promise<void> {
     m.trades = {
       open: [
         {
-          botId: "xau-newyork",
+          botId: "btc-momo",
           tag: "ny_up",
           dir: "up",
           entry: ser[ser.length - 40]!,
-          stopDist: 5.6,
-          slPrice: ser[ser.length - 40]!,
-          tpPrice: ser[ser.length - 40]! + 8.4,
+          stopDist: 320,
+          slPrice: ser[ser.length - 40]! - 320,
+          tpPrice: ser[ser.length - 40]! + 480,
           ts: now - 640_000,
+          sym: BTC_SYMBOL,
           slNote: "break-even @ +1.0R",
         },
       ],
       closed: [
-        { ts: now - 26_400_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.9, isWin: true, r: 0.95 },
-        { ts: now - 24_900_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_long", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 23_100_000, botId: "xau-london", symbol: "frxXAUUSD", tag: "mr_short", profit: 2.85, isWin: true, r: 1.42 },
-        { ts: now - 12_600_000, botId: "xau-tokyo", symbol: "frxXAUUSD", tag: "mr_long", profit: -1.0, isWin: false, r: -1.0 },
-        { ts: now - 8_600_000, botId: "xau-newyork", symbol: "frxXAUUSD", tag: "ny_dn", profit: -2.0, isWin: false, r: -1.0 },
-        { ts: now - 6_100_000, botId: "xau-tokyo", symbol: "frxXAUUSD", tag: "mr_short", profit: 1.5, isWin: true, r: 1.5 },
-        { ts: now - 4_200_000, botId: "xau-newyork", symbol: "frxXAUUSD", tag: "ny_up", profit: 3.1, isWin: true, r: 1.55 },
+        { ts: now - 26_400_000, botId: "btc-momo", symbol: BTC_SYMBOL, tag: "ny_up", profit: 90.3, isWin: true, r: 1.5 },
+        { ts: now - 24_900_000, botId: "btc-emaflip", symbol: BTC_SYMBOL, tag: "ema_dn", profit: -5.2, isWin: false, r: -1.0 },
+        { ts: now - 23_100_000, botId: "btc-emaflip", symbol: BTC_SYMBOL, tag: "ema_up", profit: 6.2, isWin: true, r: 1.2 },
+        { ts: now - 12_600_000, botId: "btc-h1", symbol: BTC_SYMBOL, tag: "h1_buy", profit: -32.9, isWin: false, r: -0.7 },
+        { ts: now - 8_600_000, botId: "btc-momo", symbol: BTC_SYMBOL, tag: "ny_dn", profit: -13.1, isWin: false, r: -0.3 },
+        { ts: now - 6_100_000, botId: "btc-emaflip", symbol: BTC_SYMBOL, tag: "ema_dn", profit: 8.2, isWin: true, r: 1.5 },
+        { ts: now - 4_200_000, botId: "btc-momo", symbol: BTC_SYMBOL, tag: "ny_up", profit: 44.1, isWin: true, r: 0.9 },
       ],
     };
     m.botStatus = {
       ts: now - 20_000,
-      risk: { pnlToday: 1.85, pnlTodayPct: 0.019, lossStreak: 0, halted: null },
+      risk: { pnlToday: 105.6, pnlTodayPct: 1.04, lossStreak: 0, halted: null },
       bots: [
-        { id: "xau-london", stopped: false, open: false, adx: 18.4 },
-        { id: "xau-newyork", stopped: false, open: true, adx: 28.1 },
+        { id: "btc-momo", stopped: false, open: true, adx: 27.2 },
+        { id: "btc-h1", stopped: false, open: false, adx: 22.1 },
+        { id: "btc-emaflip", stopped: false, open: false, adx: 18.9 },
       ],
-      structure: { bias: "up", s1: 4418, r1: 4472, s2: 4361, r2: 4489, invalLow: 4327, invalHigh: 4512, zoneHalf: 3.1 },
+      structure: null,
     };
     m.learn = {
       bots: {
-        "xau-newyork": {
+        "btc-momo": {
           tuning: 0.1,
           onProbation: false,
           arms: { ny_up: { recent: [1, 0, 1, 1], trades: 4 }, ny_dn: { recent: [0, 1], trades: 2 } },
@@ -964,7 +1013,7 @@ async function main(): Promise<void> {
     };
     m.logLines = [
       "[2026-08-31T17:12:15Z] INFO  main status ...",
-      "[2026-08-31T18:41:03Z] INFO  bot:xau-newyork ENTRAR ny_up stake=2 x100 SL=1.9 TP=2.85",
+      "[2026-08-31T18:41:03Z] INFO  bot:btc-momo ENTRAR ny_up stake=203 x100 SL=60 TP=90",
       "[2026-08-31T18:41:04Z] INFO  deriv socket aberto (autenticado via OTP)",
       "[2026-08-31T18:52:30Z] INFO  main reconectado e re-subscrito",
     ];
@@ -1057,14 +1106,26 @@ async function main(): Promise<void> {
 
   async function fetchSchedules(): Promise<void> {
     if (!client || !m.connected) return;
-    m.market = (await client.marketSchedule(GOLD_SYMBOL).catch(() => null)) ?? m.market;
+    m.market = (await client.marketSchedule(BTC_SYMBOL).catch(() => null)) ?? m.market;
     try {
-      const dc = await client.candlesOHLC(GOLD_SYMBOL, 3, 86400);
+      const dc = await client.candlesOHLC(BTC_SYMBOL, 3, 86400);
       if (dc.length >= 2) {
-        m.goldDay = { open: dc[dc.length - 1]!.open, prevClose: dc[dc.length - 2]!.close };
+        m.btcDay = { open: dc[dc.length - 1]!.open, prevClose: dc[dc.length - 2]!.close };
       }
     } catch {
-      /* mercado fechado / sem histórico */
+      /* sem histórico */
+    }
+    try {
+      const h1 = (await client.candlesOHLC(BTC_SYMBOL, 24 * 15, 3600)) as OHLC[];
+      if (h1.length >= 20) {
+        m.btcVol = {
+          atrPct: ohlcAtrPct(h1, 14),
+          base: atrPctBaseline(h1, 14, 24 * 10),
+          hourly: hourlyRangeProfile(h1),
+        };
+      }
+    } catch {
+      /* sem histórico */
     }
     // trade types por símbolo (dos bots do config) — uma vez basta
     const syms = [...new Set((cfg.bots ?? []).map((b: any) => b.symbol).filter(Boolean))] as string[];
@@ -1183,9 +1244,8 @@ async function main(): Promise<void> {
           toggle(list[m.botCursor]);
         } else if (/^[1-9]$/.test(key)) {
           toggle(list[Number(key) - 1]);
-        } else if (key === "x" || key === "c") {
-          const want = key === "x" ? "frxXAUUSD" : "cryBTCUSD";
-          for (const b of list) if (b.id) setBotEnabled(b.id, b.symbol === want);
+        } else if (key === "a" || key === "n") {
+          for (const b of list) if (b.id) setBotEnabled(b.id, key === "a");
         }
         render(m, cfg);
       } else if (key === "b") {

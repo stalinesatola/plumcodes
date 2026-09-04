@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so Gold/USD (frxXAUUSD). 6 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica sem filtro de regime partilhado. Reversao a media: xau-sydney/tokyo/london (Bollinger+RSI). Momentum: xau-frankfurt/newyork (corpo de vela >= forceMult*ATR). Scalp: xau-scalp (EMA50 + Estocastico + Bollinger + rejeicao). Unico filtro partilhado que resta: estrutura diaria (structure.enabled) — pode desligar tambem se quiser bots 100% independentes. Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, botStopLossUsd 500 por bot.",
+  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 3 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-emaflip: seguidor de micro-tendencia 1 EMA(20) M1 com martingale 1.5x (EV-negativo, forward-test). Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 12,
+    "maxConcurrentBots": 4,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -27,7 +27,7 @@
     "persistPath": "data/learn-state.json"
   },
   "ml": {
-    "//": "DESLIGADO 2026-09-01 temporariamente: o predictor.py em si esta OK (responde ping/predict, salva model.json), mas estava em loop de crash porque HAVIA 3 processos do bot rodando juntos (2 zumbis) e cada pm2 restart matava os filhos python (code=3221225786 = Ctrl+C do grupo). Religar (enabled:true) depois de garantir 1 so instancia via pm2.",
+    "//": "DESLIGADO: religar (enabled:true) depois de garantir 1 so instancia via pm2.",
     "enabled": false,
     "pythonPath": "python",
     "scriptPath": "ml/predictor.py",
@@ -52,411 +52,13 @@
     }
   },
   "structure": {
-    "//": "Estrutura diaria (portado do indicador XAUUSD_DailyStructure): zonas R1/S1 (~1d), R2/S2 (~5d), invalidacao (~10d), vies EMA20/50 H1. mode off = SO CALCULA E MOSTRA no monitor, nao barra entrada nenhuma (bots 100% independentes). block-counter volta a filtrar so o que vai contra a estrutura; require-zone exige o preco numa zona a favor.",
-    "enabled": true,
-    "mode": "off",
-    "shortLookback": 24,
-    "mediumLookback": 120,
-    "invalLookback": 240,
-    "atrPeriod": 14,
-    "zoneAtrMult": 0.6,
-    "emaFast": 20,
-    "emaSlow": 50,
-    "zoneBandK": 1.2
+    "//": "DESLIGADO — era o filtro de estrutura diaria portado do indicador XAUUSD_DailyStructure (so fazia sentido no ouro). enabled:false = nao calcula nada.",
+    "enabled": false,
+    "mode": "off"
   },
   "bots": [
     {
-      "//": "Reversao a media (Bollinger 2.0 + RSI). 24/7 — o ADX(<22) e a tecla [b] do monitor decidem quando opera.",
-      "id": "xau-sydney",
-      "enabled": true,
-      "strategy": "gold_meanrev_london",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 1,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "bbPeriod": 20,
-        "bbK": 2,
-        "rsiPeriod": 14,
-        "rsiOb": 68,
-        "rsiOs": 32,
-        "stopAtrMult": 1,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100,
-        "rr": 1.5
-      },
-      "riskPerTradePct": 0.5,
-      "maxHoldMinutes": 45,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.2,
-        "trailGapR": 0.6
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "Reversao a media (Bollinger 2.0 + RSI), copia do sydney. 24/7 — controlado por ADX + [b].",
-      "id": "xau-tokyo",
-      "enabled": true,
-      "strategy": "gold_meanrev_london",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 1,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "bbPeriod": 20,
-        "bbK": 2,
-        "rsiPeriod": 14,
-        "rsiOb": 68,
-        "rsiOs": 32,
-        "stopAtrMult": 1,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100,
-        "rr": 1.5
-      },
-      "riskPerTradePct": 0.5,
-      "maxHoldMinutes": 45,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.2,
-        "trailGapR": 0.6
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "Momentum (corpo de vela >= forceMult*ATR M5). 24/7 — so opera com ADX(M15)>=25; ligar/desligar em [b].",
-      "id": "xau-frankfurt",
-      "enabled": true,
-      "strategy": "gold_ny_momo",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "forceMult": 1.2,
-        "stopAtrMult": 1,
-        "multiplier": 100,
-        "rr": 1.5
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 30,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.2,
-        "trailGapR": 0.6
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "Reversao a media, bandas mais apertadas (mais entradas). 24/7 — ADX(<22) + [b].",
-      "id": "xau-london",
-      "enabled": true,
-      "strategy": "gold_meanrev_london",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "bbPeriod": 20,
-        "bbK": 1.8,
-        "rsiPeriod": 14,
-        "rsiOb": 66,
-        "rsiOs": 34,
-        "stopAtrMult": 1,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100,
-        "rr": 1.5
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 45,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.2,
-        "trailGapR": 0.6
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "Momentum pos-impulso. 24/7 — ADX(M15)>=25 + [b].",
-      "id": "xau-newyork",
-      "enabled": true,
-      "strategy": "gold_ny_momo",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "forceMult": 1.1,
-        "stopAtrMult": 1,
-        "multiplier": 100,
-        "rr": 1.5
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 30,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.2,
-        "trailGapR": 0.6
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "SCALP em M1 (tf=60): EMA50(M1) + Estocastico 14/3/3(M1) + Bollinger 20/2(M1) + candle de rejeicao. Stop de scalp <= $2.5, alvo rr 1.5. maxHold 8min, cooldown 5min. Rapido e frequente.",
-      "id": "xau-scalp",
-      "enabled": true,
-      "strategy": "gold_trend_scalp",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "emaPeriod": 50,
-        "stochK": 14,
-        "stochSlow": 3,
-        "stochD": 3,
-        "stochOs": 20,
-        "stochOb": 80,
-        "bbPeriod": 20,
-        "bbK": 2,
-        "wickRatio": 0.5,
-        "stopAtrMult": 1,
-        "maxStopUsd": 2.5,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100,
-        "rr": 1.5,
-        "tf": 60
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 8,
-      "minMinutesBetweenTrades": 5,
-      "manageStop": {
-        "breakEvenAtR": 0.6,
-        "trailAfterR": 0.9,
-        "trailGapR": 0.4
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "FIMATHE (aprox. automatica da metodologia de Marcelo Ferreira). Canal de referencia M15 (4 velas ~1h), equador = 50%, tendencia por EMA20 M15. mode equador (padrao): entra a favor da tendencia no recuo ao 50% do canal com a vela M15 retomando. Stop alem da zona neutra. FIMATHE e discricionaria — isto e uma leitura automatica dos conceitos, forward-test only.",
-      "id": "xau-fimathe",
-      "enabled": true,
-      "strategy": "gold_fimathe",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "pctOfBalance": 5,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "refBars": 4,
-        "trendEma": 20,
-        "equadorTol": 0.18,
-        "mode": 0,
-        "rr": 2.5,
-        "maxStopUsd": 8,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 90,
-      "minMinutesBetweenTrades": 20,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.6,
-        "trailGapR": 0.9
-      },
-      "botStopLossUsd": 500
-    },
-    {
-      "//": "XAUUSD no H1 (spec do usuario). Tendencia = EMA50 + EMA200 (H1). Momentum = RSI(14) forte E na direcao. Filtro de volatilidade = ATR(H1) entre 0.15% e 1.2% do preco (ignora mercado morto e caos). COMPRA acima das 2 EMAs / VENDA abaixo. Risco: 1% por trade (riskPerTradePct, sizing classico), drawdown diario 4% (botDailyStopPct), desliga apos 3 perdas seguidas (botLossStreakStop).",
-      "id": "xau-h1",
-      "enabled": true,
-      "strategy": "gold_h1_trend",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "emaFast": 50,
-        "emaSlow": 200,
-        "rsiPeriod": 14,
-        "rsiBull": 55,
-        "rsiBear": 45,
-        "atrPeriod": 14,
-        "atrMinPct": 0.0015,
-        "atrMaxPct": 0.012,
-        "stopAtrMult": 1.5,
-        "rr": 2,
-        "tradeStart": 0,
-        "tradeEnd": 24,
-        "multiplier": 100
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 300,
-      "minMinutesBetweenTrades": 90,
-      "manageStop": {
-        "breakEvenAtR": 1,
-        "trailAfterR": 1.5,
-        "trailGapR": 0.7
-      },
-      "botDailyStopPct": 4,
-      "botLossStreakStop": 3
-    },
-    {
-      "//": "SCALP AGRESSIVO M1 de alta frequencia (spec do usuario). EMA5xEMA13 + RSI(7) + rompimento da max/min de 5 velas com expansao de volatilidade. Stop curto ~7 pips ($0.7, piso 0.5*ATR), alvo rr 1.75, trailing apos ~5 pips (BE/trail em manageStop). So nas aberturas de Londres (7-10 UTC) e NY (12-15 UTC), pula NFP. ATENCAO: stop de scalp tao curto no ouro com multiplicador = a comissao (~0.00014*nocional) pesa MUITO na relacao risco/retorno. Stake baixo ($80) de proposito. Forward-test.",
-      "id": "xau-hf",
-      "enabled": true,
-      "strategy": "gold_m1_hf_scalp",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 80,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "emaFast": 5,
-        "emaSlow": 13,
-        "rsiPeriod": 7,
-        "rsiBuyMax": 72,
-        "rsiSellMin": 28,
-        "breakoutLookback": 5,
-        "expandMult": 1.2,
-        "newsMult": 3,
-        "atrPeriod": 14,
-        "pipValue": 0.1,
-        "stopPips": 7,
-        "maxStopUsd": 2.5,
-        "rr": 1.75,
-        "multiplier": 100,
-        "tradeStart": 7,
-        "tradeEnd": 10,
-        "tradeStart2": 12,
-        "tradeEnd2": 15
-      },
-      "riskPerTradePct": 1,
-      "maxHoldMinutes": 6,
-      "minMinutesBetweenTrades": 2,
-      "manageStop": {
-        "breakEvenAtR": 0.7,
-        "trailAfterR": 0.8,
-        "trailGapR": 0.35
-      },
-      "botDailyStopPct": 4,
-      "botLossStreakStop": 4
-    },
-    {
-      "//": "Canal 55-MA(High)/55-MA(Low) + Heikin Ashi (spec do usuario). NAO opera dentro do canal. COMPRA no rompimento da 55-MA(High) com vela HA verde / VENDA abaixo da 55-MA(Low) com HA vermelha. Filtro HTF: SMA(200) no H1 (so compra acima, so vende abaixo). Stop = max(ATR*2.5, alem da vela anterior), rr 1.5, apos 1:1.5 vai p/ break-even. Sessoes: Asia (0-9 UTC) + NY (12-21 UTC). tf M5.",
-      "id": "xau-ha",
-      "enabled": true,
-      "strategy": "gold_ha_channel",
-      "symbol": "frxXAUUSD",
-      "durationTicks": 0,
-      "stake": {
-        "base": 2,
-        "martingale": {
-          "enabled": false,
-          "factor": 2,
-          "maxSteps": 2
-        }
-      },
-      "params": {
-        "maPeriod": 55,
-        "tf": 300,
-        "atrPeriod": 14,
-        "stopAtrMult": 2.5,
-        "rr": 1.5,
-        "htfFilter": 1,
-        "htfMaPeriod": 200,
-        "tradeStart": 0,
-        "tradeEnd": 9,
-        "tradeStart2": 12,
-        "tradeEnd2": 21,
-        "multiplier": 100
-      },
-      "riskPerTradePct": 0.5,
-      "maxHoldMinutes": 120,
-      "minMinutesBetweenTrades": 15,
-      "manageStop": {
-        "breakEvenAtR": 1.5,
-        "trailAfterR": 1.5,
-        "trailGapR": 1
-      },
-      "botDailyStopPct": 3,
-      "botLossStreakStop": 4
-    },
-    {
-      "//": "BTC/USD momentum (corpo de vela M5 >= forceMult*ATR). BTC so tem multiplicador na Deriv e a comissao e ~2-4x a do ouro — o ratio risco/retorno sofre. Stops auto-escalam pelo ATR (BTC M5 ~$97). DESLIGADO por padrao — ligue no [b].",
+      "//": "BTC/USD momentum (corpo de vela M5 >= forceMult*ATR). Stops auto-escalam pelo ATR (BTC M5 ~$97). Stake 2% da banca (pctOfBalance). Freios: drawdown diario 4%, 4 perdas seguidas, botStopLossUsd 500.",
       "id": "btc-momo",
       "enabled": true,
       "strategy": "gold_ny_momo",
@@ -492,7 +94,7 @@
       "botLossStreakStop": 4
     },
     {
-      "//": "BTC/USD tendencia H1 (EMA50+EMA200 + RSI + filtro ATR). Mesma logica do xau-h1 apontada pro BTC. DESLIGADO por padrao.",
+      "//": "BTC/USD tendencia H1 (EMA50+EMA200 + RSI + filtro ATR). COMPRA acima das 2 EMAs / VENDA abaixo, momentum RSI na direcao, ATR(H1) entre 0.15% e 2% do preco. Freios: drawdown diario 4%, 3 perdas seguidas.",
       "id": "btc-h1",
       "enabled": true,
       "strategy": "gold_h1_trend",
@@ -533,7 +135,7 @@
       "botLossStreakStop": 3
     },
     {
-      "//": "BTC/USD seguidor de micro-tendencia: 1 EMA(20) no M1. Preco fecha acima -> COMPRA, abaixo -> VENDA (so na virada). Expiracao 2-5min = maxHoldMinutes 4. Meta diaria +7% (botDailyTpPct), stop diario -12% (botDailyStopPct). Recuperacao 1.5x (martingale factor 1.5, 2 passos). AVISO: multiplicador na Deriv (BTC so tem MULT) + stake pequeno = comissao pesa muito. Martingale e EV-negativo (FINDINGS.md). Forward-test em demo.",
+      "//": "BTC/USD seguidor de micro-tendencia: 1 EMA(20) no M1. Preco fecha acima -> COMPRA, abaixo -> VENDA (so na virada). Expiracao 2-5min = maxHoldMinutes 4. Meta diaria +7% (botDailyTpPct), stop diario -12% (botDailyStopPct). Recuperacao 1.5x (martingale factor 1.5, 2 passos). AVISO: multiplicador + stake pequeno = comissao pesa muito. Martingale e EV-negativo (FINDINGS.md). Forward-test em demo.",
       "id": "btc-emaflip",
       "enabled": true,
       "strategy": "crypto_ema_flip",
