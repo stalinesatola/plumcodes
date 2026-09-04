@@ -72,7 +72,15 @@ export interface BotConfig {
      *  Ex.: 5 = aposta 5% da banca a cada trade; o risco (slUsd) passa a flutuar
      *  com a distancia do stop em vez de ser fixo. */
     pctOfBalance?: number;
-    martingale: { enabled: boolean; factor: number; maxSteps: number };
+    martingale: {
+      enabled: boolean;
+      factor: number;
+      maxSteps: number;
+      /** [Opcional] "meltdown": em vez de ficar travado no stake de maxSteps após
+       *  perder, reseta para o stake base assim que atinge maxSteps perdas seguidas
+       *  (martingale clássico simplesmente satura no teto e fica lá). */
+      resetAfterMax?: boolean;
+    };
   };
   params: Record<string, number>;
   /** [Opcional] circuit breaker por bot: para o bot no dia se o P/L do dia cair

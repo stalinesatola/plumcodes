@@ -618,7 +618,13 @@ export class Bot {
 
     const mg = this.cfg.stake.martingale;
     if (mg.enabled) {
-      this.martingaleStep = isWin ? 0 : Math.min(this.martingaleStep + 1, mg.maxSteps);
+      if (isWin) this.martingaleStep = 0;
+      else {
+        const next = this.martingaleStep + 1;
+        // "meltdown": em vez de ficar preso no teto de maxSteps, reseta ao stake
+        // base depois de N perdas seguidas (protege a banca de um derretimento real).
+        this.martingaleStep = mg.resetAfterMax && next >= mg.maxSteps ? 0 : Math.min(next, mg.maxSteps);
+      }
     }
 
     this.risk.recordResult(result);

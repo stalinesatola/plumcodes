@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 3 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-emaflip: seguidor de micro-tendencia 1 EMA(20) M1 com martingale 1.5x (EV-negativo, forward-test). Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
+  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 4 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-emaflip: seguidor de micro-tendencia 1 EMA(20) M1 com martingale 1.5x. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 4,
+    "maxConcurrentBots": 5,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -171,6 +171,41 @@
       "botDailyStopPct": 12,
       "botDailyTpPct": 7,
       "botLossStreakStop": 5
+    },
+    {
+      "//": "BTC/USD EMA20+RSI(14) trend (spec do usuario, Quick-Strategy-style). COMPRA se preco>EMA20 e RSI>50; VENDE se preco<EMA20 e RSI<50 (flipOnly: so na virada do vies, nao toda vela). tf M5. SL/TP no proprio contrato (stopAtrMult*ATR, rr 1.5). Sessao (nao %): Meta de Lucro botTakeProfitUsd=$10, Limite de Perda botStopLossUsd=$20. Martingale 'meltdown': perdeu -> stake x1.5; apos 3 perdas SEGUIDAS reseta ao stake base (stake.martingale.resetAfterMax) em vez de ficar preso no teto — protege a banca de um derretimento real. AVISO: martingale e EV-negativo (FINDINGS.md); forward-test em demo.",
+      "id": "btc-meltdown",
+      "enabled": true,
+      "strategy": "crypto_ema_rsi_trend",
+      "symbol": "cryBTCUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 2,
+        "martingale": {
+          "enabled": true,
+          "factor": 1.5,
+          "maxSteps": 3,
+          "resetAfterMax": true
+        }
+      },
+      "params": {
+        "emaPeriod": 20,
+        "rsiPeriod": 14,
+        "rsiMid": 50,
+        "tf": 300,
+        "atrPeriod": 14,
+        "stopAtrMult": 1.5,
+        "rr": 1.5,
+        "flipOnly": 1,
+        "multiplier": 100,
+        "tradeStart": 0,
+        "tradeEnd": 24
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 180,
+      "minMinutesBetweenTrades": 10,
+      "botTakeProfitUsd": 10,
+      "botStopLossUsd": 20
     }
   ]
 }

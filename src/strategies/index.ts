@@ -724,6 +724,66 @@ const cryptoEmaFlip: Strategy = {
 };
 
 // ============================================================================
+// 11) crypto_ema_rsi_trend — EMA20 + RSI(14) filtro de tendência (spec do usuário,
+//     baseado no "Quick Strategy" do Deriv Bot). Preço > EMA20 e RSI > 50 -> COMPRA
+//     (MULTUP); preço < EMA20 e RSI < 50 -> VENDA (MULTDOWN). flipOnly (padrão): só
+//     entra quando o viés combinado (EMA+RSI concordam) muda — não em toda vela
+//     dentro da mesma tendência. Pensado p/ usar com martingale "meltdown"
+//     (stake.martingale.resetAfterMax) e botTakeProfitUsd/botStopLossUsd fixos.
+// ============================================================================
+const cryptoEmaRsiTrend: Strategy = {
+  name: "crypto_ema_rsi_trend",
+  warmup: 30,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const emaP = Math.round(p.emaPeriod ?? 20);
+    const rsiP = Math.round(p.rsiPeriod ?? 14);
+    const rsiMid = p.rsiMid ?? 50;
+    const tfSec = Math.round(p.tf ?? 60);
+    const atrP = Math.round(p.atrPeriod ?? 14);
+    const stopAtrMult = p.stopAtrMult ?? 1.5;
+    const rr = p.rr ?? 1.5;
+    const mult = p.multiplier ?? 100;
+    const flipOnly = (p.flipOnly ?? 1) !== 0;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const m1 = ctx.candles;
+    const tf = rs(m1, tfSec);
+    const closed = tfSec <= 60 ? tf : tf.slice(0, -1);
+    if (closed.length < emaP + rsiP + atrP + 3) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const cl = closed.map((c) => c.close);
+    const eNow = ema(cl, emaP);
+    const ePrev = ema(cl.slice(0, -1), emaP);
+    const rNow = rsi(cl, rsiP);
+    const rPrev = rsi(cl.slice(0, -1), rsiP);
+    if (eNow == null || ePrev == null || rNow == null || rPrev == null) return null;
+
+    const last = closed[closed.length - 1]!;
+    const prev = closed[closed.length - 2];
+    const a = atr(closed.slice(-(atrP + 5)), atrP);
+    if (a == null || a <= 0) return null;
+    const stopDistance = stopAtrMult * a;
+
+    const biasNow = last.close > eNow && rNow > rsiMid ? 1 : last.close < eNow && rNow < rsiMid ? -1 : 0;
+    const biasPrev = !prev ? 0 : prev.close > ePrev && rPrev > rsiMid ? 1 : prev.close < ePrev && rPrev < rsiMid ? -1 : 0;
+
+    if (biasNow === 1 && (!flipOnly || biasPrev !== 1)) {
+      return { contractType: "MULTUP", durationTicks: 0, tag: "trend_up", multiplier: mult, stopDistance, rr };
+    }
+    if (biasNow === -1 && (!flipOnly || biasPrev !== -1)) {
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "trend_dn", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -826,6 +886,7 @@ for (const s of [
   goldM1HfScalp,
   goldHaChannel,
   cryptoEmaFlip,
+  cryptoEmaRsiTrend,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {
