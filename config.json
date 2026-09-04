@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 3 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. (btc-emaflip removido em 2026-09-04 — 0 dias positivos, ~-$45 acumulado.) Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
+  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 4 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido em 2026-09-04 — 0 dias positivos, ~-$45 acumulado.) Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 4,
+    "maxConcurrentBots": 5,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -168,6 +168,47 @@
       "minMinutesBetweenTrades": 10,
       "botTakeProfitUsd": 10,
       "botStopLossUsd": 20
+    },
+    {
+      "//": "Institutional Liquidity Framework (spec do usuario): mapeia liquidez (BSL/SSL via fractais), entra num sweep de liquidez (pavio rompe + fecha de volta) seguido de rompimento de estrutura (BOS/CHoCH) na direcao contraria, filtrado por vies HTF (EMA50 no H1) e zona de premium/discount (equilibrio 50% do range M15). RR minimo 1:2, risco 1% por trade, sem martingale (disciplina profissional pedida na spec). SIMPLIFICACAO: nao exige retorno a Order Block/FVG antes de entrar (entra na propria vela de confirmacao do BOS); 'HTF' = H1 (maior timeframe disponivel; a spec original pedia D1/semanal). Forward-test em demo.",
+      "id": "btc-ilf",
+      "enabled": true,
+      "strategy": "ilf_liquidity_sweep",
+      "symbol": "cryBTCUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 2,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "tf": 900,
+        "fractalK": 2,
+        "sweepWindow": 10,
+        "rangeLookback": 40,
+        "htfEmaPeriod": 50,
+        "requireZone": 1,
+        "requireHtfBias": 1,
+        "atrPeriod": 14,
+        "stopAtrMult": 1.2,
+        "rr": 2,
+        "multiplier": 100,
+        "tradeStart": 0,
+        "tradeEnd": 24
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 240,
+      "minMinutesBetweenTrades": 30,
+      "manageStop": {
+        "breakEvenAtR": 1,
+        "trailAfterR": 1.5,
+        "trailGapR": 0.7
+      },
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 3
     }
   ]
 }

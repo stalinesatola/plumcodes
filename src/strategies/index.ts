@@ -53,6 +53,26 @@ const hourUTC = (epoch: number) => new Date(epoch * 1000).getUTCHours();
 const inWin = (h: number, start: number, end: number) =>
   start <= end ? h >= start && h < end : h >= start || h < end;
 
+/** Pontos de fractal (swing high / swing low): uma barra é swing high se for a
+ *  maior de `k` barras de cada lado (idem, invertido, p/ swing low). Precisa de
+ *  `k` barras de confirmação depois — o swing mais recente detectável fica em
+ *  `cs.length - k - 1`. Usado pelo ILF p/ mapear liquidez (BSL/SSL). */
+function swingPoints(cs: Candle[], k: number): { highs: number[]; lows: number[] } {
+  const highs: number[] = [];
+  const lows: number[] = [];
+  for (let i = k; i < cs.length - k; i++) {
+    let isHigh = true;
+    let isLow = true;
+    for (let j = 1; j <= k; j++) {
+      if (!(cs[i]!.high > cs[i - j]!.high && cs[i]!.high > cs[i + j]!.high)) isHigh = false;
+      if (!(cs[i]!.low < cs[i - j]!.low && cs[i]!.low < cs[i + j]!.low)) isLow = false;
+    }
+    if (isHigh) highs.push(i);
+    if (isLow) lows.push(i);
+  }
+  return { highs, lows };
+}
+
 // ============================================================================
 // 1) gold_session_breakout — rompimento de canal Donchian M15, filtrado por sessao.
 //    Hipotese: nas horas liquidas (08-19 UTC, com pico no overlap Londres/NY) uma
@@ -784,6 +804,132 @@ const cryptoEmaRsiTrend: Strategy = {
 };
 
 // ============================================================================
+// 12) ilf_liquidity_sweep — Institutional Liquidity Framework (spec do usuário):
+//     "o preço se move de liquidez em liquidez". Mapeia liquidez (BSL acima de
+//     swing highs / SSL abaixo de swing lows via fractais), detecta um SWEEP
+//     (pavio rompe a zona e a vela fecha de volta pra dentro — liquidity grab)
+//     seguido de um rompimento de estrutura na direção contrária (BOS/CHoCH:
+//     a barra atual fecha além da máxima/mínima local formada depois do sweep),
+//     filtra por viés HTF (EMA no H1) e por zona de premium/discount (equilíbrio
+//     50% do range recente — Fibonacci). Entrada: MULTUP no sweep de SSL em
+//     desconto + BOS de alta; MULTDOWN no sweep de BSL em prêmio + BOS de baixa.
+//     Stop além do pavio do sweep, RR mínimo 1:2 (params.rr).
+//     SIMPLIFICAÇÃO ASSUMIDA vs a spec completa: não exige retorno físico a um
+//     Order Block/FVG antes de entrar (entra na própria vela de confirmação do
+//     BOS) — senão o setup fica raro demais p/ testar; e "HTF" aqui é H1 (é o
+//     maior timeframe que o bot tem disponível, spec pedia Diário/Semanal).
+// ============================================================================
+const ilfLiquiditySweep: Strategy = {
+  name: "ilf_liquidity_sweep",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const tfSec = Math.round(p.tf ?? 900); // TF de entrada (padrão M15)
+    const fractalK = Math.round(p.fractalK ?? 2);
+    const sweepWindow = Math.round(p.sweepWindow ?? 10); // barras p/ procurar o sweep
+    const rangeLookback = Math.round(p.rangeLookback ?? 40); // p/ premium/discount
+    const htfEmaP = Math.round(p.htfEmaPeriod ?? 50);
+    const requireZone = (p.requireZone ?? 1) !== 0;
+    const requireHtfBias = (p.requireHtfBias ?? 1) !== 0;
+    const atrPeriod = Math.round(p.atrPeriod ?? 14);
+    const stopAtrMult = p.stopAtrMult ?? 1.2;
+    const rr = p.rr ?? 2; // spec: risk:reward mínimo 1:2
+    const mult = p.multiplier ?? 100;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const m1 = ctx.candles;
+    const tf = rs(m1, tfSec);
+    const closed = tf.slice(0, -1); // só barras fechadas do TF de entrada
+    const minBars = rangeLookback + sweepWindow + fractalK * 2 + 10;
+    if (closed.length < minBars) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const a = atr(closed.slice(-(atrPeriod + 5)), atrPeriod);
+    if (a == null || a <= 0) return null;
+    const last = closed[closed.length - 1]!;
+    const price = last.close;
+
+    // --- viés HTF (H1: maior timeframe disponível) ---
+    let htfBullish = true;
+    let htfBearish = true;
+    if (requireHtfBias) {
+      const h1 = ctx.h1 ?? [];
+      if (h1.length < htfEmaP + 2) return null;
+      const hEma = ema(
+        h1.map((c) => c.close),
+        htfEmaP,
+      );
+      if (hEma == null) return null;
+      const hClose = h1[h1.length - 1]!.close;
+      htfBullish = hClose > hEma;
+      htfBearish = hClose < hEma;
+    }
+
+    // --- zona premium/discount (equilíbrio 50% do range recente) ---
+    const rangeBars = closed.slice(-rangeLookback);
+    const rHi = Math.max(...rangeBars.map((c) => c.high));
+    const rLo = Math.min(...rangeBars.map((c) => c.low));
+    const eq = (rHi + rLo) / 2;
+    const inDiscount = price <= eq;
+    const inPremium = price >= eq;
+
+    // --- mapeamento de liquidez: swing mais recente ANTES da janela de sweep ---
+    const { highs, lows } = swingPoints(closed, fractalK);
+    const n = closed.length;
+    const priorLowIdx = [...lows].reverse().find((i) => i < n - sweepWindow);
+    const priorHighIdx = [...highs].reverse().find((i) => i < n - sweepWindow);
+    const ssl = priorLowIdx != null ? closed[priorLowIdx]!.low : null; // sell-side liquidity
+    const bsl = priorHighIdx != null ? closed[priorHighIdx]!.high : null; // buy-side liquidity
+
+    // --- varre a janela em busca de SWEEP + BOS/CHoCH (a barra atual confirma) ---
+    let bullSweepLow: number | null = null;
+    if (ssl != null) {
+      for (let i = n - sweepWindow; i < n - 1; i++) {
+        const c = closed[i]!;
+        if (c.low < ssl && c.close > ssl) {
+          let postHigh = -Infinity;
+          for (let j = i + 1; j < n - 1; j++) postHigh = Math.max(postHigh, closed[j]!.high);
+          if (postHigh === -Infinity) postHigh = c.high;
+          if (last.close > postHigh) {
+            bullSweepLow = c.low;
+            break;
+          }
+        }
+      }
+    }
+    let bearSweepHigh: number | null = null;
+    if (bsl != null) {
+      for (let i = n - sweepWindow; i < n - 1; i++) {
+        const c = closed[i]!;
+        if (c.high > bsl && c.close < bsl) {
+          let postLow = Infinity;
+          for (let j = i + 1; j < n - 1; j++) postLow = Math.min(postLow, closed[j]!.low);
+          if (postLow === Infinity) postLow = c.low;
+          if (last.close < postLow) {
+            bearSweepHigh = c.high;
+            break;
+          }
+        }
+      }
+    }
+
+    if (bullSweepLow != null && (!requireHtfBias || htfBullish) && (!requireZone || inDiscount)) {
+      const stopDistance = Math.max(stopAtrMult * a, price - bullSweepLow + 0.1 * a);
+      return { contractType: "MULTUP", durationTicks: 0, tag: "ilf_ssl_sweep", multiplier: mult, stopDistance, rr };
+    }
+    if (bearSweepHigh != null && (!requireHtfBias || htfBearish) && (!requireZone || inPremium)) {
+      const stopDistance = Math.max(stopAtrMult * a, bearSweepHigh - price + 0.1 * a);
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "ilf_bsl_sweep", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -887,6 +1033,7 @@ for (const s of [
   goldHaChannel,
   cryptoEmaFlip,
   cryptoEmaRsiTrend,
+  ilfLiquiditySweep,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {
