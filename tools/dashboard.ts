@@ -18,8 +18,9 @@
  * `--once` renderiza um quadro no stdout e sai. Sem dependências além de `ws`.
  */
 process.env.LOG_SILENT = "1"; // silencia o logger do DerivClient (antes do import)
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { exec } from "node:child_process";
+import { emitKeypressEvents } from "node:readline";
 import { DerivClient } from "../src/deriv/client.ts";
 import { getStrategy } from "../src/strategies/index.ts";
 import {
@@ -1199,6 +1200,26 @@ async function main(): Promise<void> {
   let lastForce = 0;
   const timer = setInterval(async () => {
     refresh();
+    // canal de comando por ficheiro — funciona mesmo se o teclado estiver morto.
+    // Escreve uma palavra em data/dash-cmd: halt|unhalt|stats|bots|reconnect|quit
+    try {
+      if (existsSync("data/dash-cmd")) {
+        const cmd = readFileSync("data/dash-cmd", "utf8").trim().toLowerCase();
+        rmSync("data/dash-cmd");
+        if (cmd === "halt") setHalt(true);
+        else if (cmd === "unhalt") setHalt(false);
+        else if (cmd === "stats") m.showStats = !m.showStats;
+        else if (cmd === "bots") m.showBots = !m.showBots;
+        else if (cmd === "reconnect" && client) client.forceReconnect();
+        else if (cmd === "quit") {
+          leaveAlt();
+          process.exit(0);
+        }
+        out(`${ESC}2J`);
+      }
+    } catch {
+      /* ignore */
+    }
     // rastreia há quanto tempo a ligação está caída
     if (m.connected) m.disconnectedSince = 0;
     else if (!m.disconnectedSince) m.disconnectedSince = Date.now();
@@ -1309,19 +1330,43 @@ async function main(): Promise<void> {
         }
       }
     };
-    process.stdin.on("data", (raw: string) => {
-      if (raw.charCodeAt(0) === 27) return processKey(raw); // escape seq (setas) — modo raw
-      if (raw === "\x03") return processKey("\x03");
-      if (raw.includes("\n") || raw.includes("\r")) {
-        // modo linha: um chunk pode trazer várias teclas ("t\nq\n")
+    if (rawOk) {
+      // modo raw: eventos 'keypress' do readline — mais fiável no Windows
+      // Terminal / ConPTY que ler 'data' cru. Fallback p/ 'data' se, por algum
+      // motivo, nenhum keypress chegar nos primeiros ~4s.
+      let gotKeypress = false;
+      try {
+        emitKeypressEvents(process.stdin);
+      } catch {
+        /* ok */
+      }
+      process.stdin.on("keypress", (str: string | undefined, k: any) => {
+        gotKeypress = true;
+        if (k?.ctrl && k?.name === "c") return processKey("\x03");
+        if (k?.name === "up") return processKey("\x1b[A");
+        if (k?.name === "down") return processKey("\x1b[B");
+        if (k?.name === "return" || k?.name === "enter") return processKey("\r");
+        if (k?.name === "space") return processKey(" ");
+        if (k?.name === "escape") return processKey("\x1b");
+        if (typeof str === "string" && str.length === 1) return processKey(str);
+      });
+      const onData = (raw: string) => {
+        if (gotKeypress) return; // keypress está a funcionar — evita duplicar
+        if (raw === "\x03") return processKey("\x03");
+        if (raw === "\x1b[A" || raw === "\x1b[B") return processKey(raw);
+        if (raw.length === 1 && raw.charCodeAt(0) >= 32) return processKey(raw);
+      };
+      process.stdin.on("data", onData);
+    } else {
+      // modo linha (stdin não-TTY): a tecla chega com Enter
+      process.stdin.on("data", (raw: string) => {
+        if (raw === "\x03") return processKey("\x03");
         for (const p of raw.split(/\r?\n/)) {
           const k = p.trim();
           if (k) processKey(k);
         }
-        return;
-      }
-      processKey(raw); // modo raw: 1 char
-    });
+      });
+    }
   }
 }
 
