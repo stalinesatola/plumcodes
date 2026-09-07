@@ -1204,7 +1204,12 @@ async function main(): Promise<void> {
     // Escreve uma palavra em data/dash-cmd: halt|unhalt|stats|bots|reconnect|quit
     try {
       if (existsSync("data/dash-cmd")) {
-        const cmd = readFileSync("data/dash-cmd", "utf8").trim().toLowerCase();
+        // tolera BOM / UTF-16 (Out-File do PowerShell) / CRLF: fica só o ASCII visível
+        const cmd = readFileSync("data/dash-cmd")
+          .toString("utf8")
+          .replace(/[^\x20-\x7e]/g, "")
+          .trim()
+          .toLowerCase();
         rmSync("data/dash-cmd");
         if (cmd === "halt") setHalt(true);
         else if (cmd === "unhalt") setHalt(false);
