@@ -30,6 +30,20 @@ export function rsi(values: number[], period: number): number | null {
   return 100 - 100 / (1 + rs);
 }
 
+/** Bandas de Bollinger: media movel simples +/- k desvios-padrao (populacional)
+ *  sobre os ultimos `period` valores. `null` se faltar dado. */
+export function bollinger(
+  values: number[],
+  period: number,
+  k: number,
+): { mid: number; upper: number; lower: number; sd: number } | null {
+  const mid = sma(values, period);
+  if (mid == null) return null;
+  const slice = values.slice(-period);
+  const sd = Math.sqrt(slice.reduce((a, x) => a + (x - mid) ** 2, 0) / period);
+  return { mid, upper: mid + k * sd, lower: mid - k * sd, sd };
+}
+
 /**
  * Estocastico completo (%K desacelerado + %D). Recebe series OHLC alinhadas
  * (mais antigo -> recente). Retorna a serie de {k,d} ou [] se faltar dado.

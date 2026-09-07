@@ -1,5 +1,6 @@
 import type { AppConfig, ContractResult } from "../types.ts";
 import { createLogger } from "../util/logger.ts";
+import { haltActive } from "../util/controls.ts";
 
 const log = createLogger("risk");
 
@@ -25,6 +26,7 @@ export class RiskManager {
   private pausedUntil = 0;
   private halted: string | null = null;
   private openContracts = 0;
+  private tradesToday = 0;
 
   constructor(cfg: AppConfig) {
     this.cfg = cfg.risk;
@@ -53,6 +55,7 @@ export class RiskManager {
       this.dayStartBalance = this.currentBalance;
       this.realizedToday = 0;
       this.lossStreak = 0;
+      this.tradesToday = 0;
       if (this.halted && this.halted.startsWith("daily")) this.halted = null;
     }
   }
@@ -80,11 +83,23 @@ export class RiskManager {
   notifyClosed() {
     this.openContracts = Math.max(0, this.openContracts - 1);
   }
+  /** Uma ENTRADA nova saiu (não conta contratos readotados no restart). */
+  notifyEntered() {
+    this.tradesToday++;
+  }
 
   canTrade(botOpenContracts: number): TradeGate {
     this.rollDayIfNeeded();
 
+    // kill-switch global (data/HALT) — não fica "sticky": some ao remover o ficheiro
+    if (haltActive()) return { ok: false, reason: "kill-switch (data/HALT)" };
+
     if (this.halted) return { ok: false, reason: this.halted };
+
+    const maxPerDay = this.cfg.maxTradesPerDay;
+    if (maxPerDay && this.tradesToday >= maxPerDay) {
+      return { ok: false, reason: `maxTradesPerDay (${maxPerDay}) atingido` };
+    }
 
     if (this.currentBalance <= this.cfg.hardFloorBalance) {
       this.halted = `hard-floor: saldo ${this.currentBalance} <= ${this.cfg.hardFloorBalance}`;
@@ -148,6 +163,9 @@ export class RiskManager {
       lossStreak: this.lossStreak,
       openContracts: this.openContracts,
       halted: this.halted,
+      killSwitch: haltActive(),
+      tradesToday: this.tradesToday,
+      maxTradesPerDay: this.cfg.maxTradesPerDay ?? null,
       pausedUntil: this.pausedUntil > Date.now() ? new Date(this.pausedUntil).toISOString() : null,
     };
   }

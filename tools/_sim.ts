@@ -1,12 +1,34 @@
 /** Núcleo de simulação compartilhado por backtest.ts e scan-symbols.ts. */
 import { getStrategy } from "../src/strategies/index.ts";
+import { resample } from "../src/util/candles.ts";
+import { adx } from "../src/util/indicators.ts";
 import type { Candle, StrategyContext } from "../src/types.ts";
 
 const CTX_WINDOW = 1050; // ~17.5h de M1 -> cobre sessao asiatica + overlap e resample M15/EMA21
+const H1_WINDOW = 15000; // ~10 dias de M1 -> ~250 velas H1 (cobre EMA200 no H1)
 
-function ctxAt(candles: Candle[], upto: number, params: Record<string, number>): StrategyContext {
+function ctxAt(
+  candles: Candle[],
+  upto: number,
+  params: Record<string, number>,
+  h1All?: Candle[],
+): StrategyContext {
   const closed = candles.slice(Math.max(0, upto - CTX_WINDOW), upto);
   const closes = closed.map((c) => c.close);
+  const nowEpoch = closed[closed.length - 1]?.epoch ?? 0;
+  // contexto de timeframe alto (H1). Preferir a serie H1 REAL (h1All) quando o
+  // caller a passa — a Deriv so serve ~4000 velas M1 de cripto, entao reamostrar
+  // M1 nao chega p/ EMA50/200 no H1. Sem h1All, cai no resample de M1 (util p/ o
+  // ouro, que tem M1 fundo). `resample`/filter mantem so barras JA FECHADAS.
+  let h1: Candle[];
+  if (h1All && h1All.length) {
+    h1 = h1All.filter((c) => c.epoch + 3600 <= nowEpoch);
+  } else {
+    h1 = resample(candles.slice(Math.max(0, upto - H1_WINDOW), upto), 3600);
+  }
+  const m15 = resample(closed, 900);
+  const adxM15 = m15.length > 40 ? adx(m15, 14) : null;
+  // NOTA: `structure` continua null aqui (era filtro XAUUSD-only, desligado).
   return {
     prices: closes,
     digits: [],
@@ -17,6 +39,9 @@ function ctxAt(candles: Candle[], upto: number, params: Record<string, number>):
     params,
     tuning: 0,
     defaultDurationTicks: params.durationTicks ?? 5,
+    h1,
+    adxM15,
+    structure: null,
   };
 }
 
@@ -59,6 +84,7 @@ export function runBacktest(
   candles: Candle[],
   strategyName: string,
   params: Record<string, number>,
+  h1Candles?: Candle[],
 ): BtMetrics {
   const strat = getStrategy(strategyName);
   const rr = params.rr ?? 2;
@@ -84,7 +110,7 @@ export function runBacktest(
   for (let i = strat.warmup + 60; i < candles.length - 1; i++) {
     if (i <= openUntil) continue;
     if (step > 1 && i % step !== 0) continue;
-    const intent = strat.evaluate(ctxAt(candles, i + 1, params));
+    const intent = strat.evaluate(ctxAt(candles, i + 1, params, h1Candles));
     if (!intent) continue;
     const entry = candles[i]!.close;
 

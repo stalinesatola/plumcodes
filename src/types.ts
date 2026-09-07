@@ -11,6 +11,9 @@ export interface AppConfig {
     /** [Opcional] teto rígido de risco por trade em % do saldo. Se o SL de um
      *  multiplicador passar disso, o stake é reduzido para caber. */
     maxRiskPerTradePct?: number;
+    /** [Opcional] teto global de entradas por dia UTC (soma de todos os bots).
+     *  Zera no reset diário; um restart do processo também zera (limitação). */
+    maxTradesPerDay?: number;
   };
   learning: {
     enabled: boolean;

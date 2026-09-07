@@ -1,5 +1,5 @@
 import type { Strategy, StrategyContext, TradeIntent, Candle } from "../types.ts";
-import { sma, ema, rsi, stochastic, heikinAshi } from "../util/indicators.ts";
+import { sma, ema, rsi, stochastic, heikinAshi, adx, bollinger } from "../util/indicators.ts";
 
 // ============================================================================
 // RESET 2026-08-30 — foco em Gold/USD (frxXAUUSD), mercado real.
@@ -71,6 +71,20 @@ function swingPoints(cs: Candle[], k: number): { highs: number[]; lows: number[]
     if (isLow) lows.push(i);
   }
   return { highs, lows };
+}
+
+/** Fair Value Gap (imbalance de 3 velas) mais recente a partir do indice `from`.
+ *  Alta: `cs[j-1].high < cs[j+1].low` (gap p/ cima). Baixa: `cs[j-1].low > cs[j+1].high`.
+ *  Retorna +1 (FVG de alta), -1 (de baixa) ou 0 (nenhum) — a direcao do gap mais
+ *  recente na janela [from, fim]. Usado pelo ILF p/ o filtro de FVG do SMC. */
+function lastFvg(cs: Candle[], from: number): number {
+  for (let j = cs.length - 2; j > Math.max(1, from); j--) {
+    const a = cs[j - 1]!;
+    const b = cs[j + 1]!;
+    if (a.high < b.low) return 1;
+    if (a.low > b.high) return -1;
+  }
+  return 0;
 }
 
 // ============================================================================
@@ -814,10 +828,16 @@ const cryptoEmaRsiTrend: Strategy = {
 //     50% do range recente — Fibonacci). Entrada: MULTUP no sweep de SSL em
 //     desconto + BOS de alta; MULTDOWN no sweep de BSL em prêmio + BOS de baixa.
 //     Stop além do pavio do sweep, RR mínimo 1:2 (params.rr).
-//     SIMPLIFICAÇÃO ASSUMIDA vs a spec completa: não exige retorno físico a um
-//     Order Block/FVG antes de entrar (entra na própria vela de confirmação do
-//     BOS) — senão o setup fica raro demais p/ testar; e "HTF" aqui é H1 (é o
-//     maior timeframe que o bot tem disponível, spec pedia Diário/Semanal).
+//     Nuances portadas do skill `smc` do HKUDS/Vibe-Trading (params OPT-IN, OFF
+//     por padrão — o backtest em BTC M5 mostrou que não ajudam, chegam a piorar):
+//       - requireFvg (0): não entra contra um Fair Value Gap oposto recente
+//         (regra deles: buy só se `fvg_val >= 0`).
+//       - chochStrict (0): o BOS tem de romper o swing high/low CONFIRMADO
+//         anterior ao sweep (CHoCH de verdade), não só a máx/mín local pós-sweep.
+//     SIMPLIFICAÇÃO que resta: não exige retorno físico a um Order Block antes de
+//     entrar (entra na vela de confirmação); e "HTF" aqui é H1 (maior timeframe
+//     disponível — a spec pedia Diário/Semanal). O filtro de viés HTF (EMA H1),
+//     esse, ajuda no backtest — mantê-lo ligado.
 // ============================================================================
 const ilfLiquiditySweep: Strategy = {
   name: "ilf_liquidity_sweep",
@@ -833,6 +853,8 @@ const ilfLiquiditySweep: Strategy = {
     const htfEmaP = Math.round(p.htfEmaPeriod ?? 50);
     const requireZone = (p.requireZone ?? 1) !== 0;
     const requireHtfBias = (p.requireHtfBias ?? 1) !== 0;
+    const requireFvg = (p.requireFvg ?? 0) !== 0;
+    const chochStrict = (p.chochStrict ?? 0) !== 0;
     const atrPeriod = Math.round(p.atrPeriod ?? 14);
     const stopAtrMult = p.stopAtrMult ?? 1.2;
     const rr = p.rr ?? 2; // spec: risk:reward mínimo 1:2
@@ -886,46 +908,158 @@ const ilfLiquiditySweep: Strategy = {
     const bsl = priorHighIdx != null ? closed[priorHighIdx]!.high : null; // buy-side liquidity
 
     // --- varre a janela em busca de SWEEP + BOS/CHoCH (a barra atual confirma) ---
-    let bullSweepLow: number | null = null;
+    let bull: { low: number; idx: number } | null = null;
     if (ssl != null) {
       for (let i = n - sweepWindow; i < n - 1; i++) {
         const c = closed[i]!;
-        if (c.low < ssl && c.close > ssl) {
-          let postHigh = -Infinity;
-          for (let j = i + 1; j < n - 1; j++) postHigh = Math.max(postHigh, closed[j]!.high);
-          if (postHigh === -Infinity) postHigh = c.high;
-          if (last.close > postHigh) {
-            bullSweepLow = c.low;
-            break;
-          }
+        if (!(c.low < ssl && c.close > ssl)) continue;
+        let bosLevel: number;
+        const strictIdx = chochStrict ? [...highs].reverse().find((hi) => hi < i) : undefined;
+        if (strictIdx != null) {
+          bosLevel = closed[strictIdx]!.high; // rompe o swing high confirmado anterior ao sweep
+        } else {
+          let ph = -Infinity;
+          for (let j = i + 1; j < n - 1; j++) ph = Math.max(ph, closed[j]!.high);
+          bosLevel = ph === -Infinity ? c.high : ph;
+        }
+        if (last.close > bosLevel) {
+          bull = { low: c.low, idx: i };
+          break;
         }
       }
     }
-    let bearSweepHigh: number | null = null;
+    let bear: { high: number; idx: number } | null = null;
     if (bsl != null) {
       for (let i = n - sweepWindow; i < n - 1; i++) {
         const c = closed[i]!;
-        if (c.high > bsl && c.close < bsl) {
-          let postLow = Infinity;
-          for (let j = i + 1; j < n - 1; j++) postLow = Math.min(postLow, closed[j]!.low);
-          if (postLow === Infinity) postLow = c.low;
-          if (last.close < postLow) {
-            bearSweepHigh = c.high;
-            break;
-          }
+        if (!(c.high > bsl && c.close < bsl)) continue;
+        let bosLevel: number;
+        const strictIdx = chochStrict ? [...lows].reverse().find((lo) => lo < i) : undefined;
+        if (strictIdx != null) {
+          bosLevel = closed[strictIdx]!.low;
+        } else {
+          let pl = Infinity;
+          for (let j = i + 1; j < n - 1; j++) pl = Math.min(pl, closed[j]!.low);
+          bosLevel = pl === Infinity ? c.low : pl;
+        }
+        if (last.close < bosLevel) {
+          bear = { high: c.high, idx: i };
+          break;
         }
       }
     }
 
-    if (bullSweepLow != null && (!requireHtfBias || htfBullish) && (!requireZone || inDiscount)) {
-      const stopDistance = Math.max(stopAtrMult * a, price - bullSweepLow + 0.1 * a);
+    // filtro de FVG (regra do skill smc: não entra contra um FVG oposto recente)
+    const fvgBull = bull ? lastFvg(closed, bull.idx) : 0;
+    const fvgBear = bear ? lastFvg(closed, bear.idx) : 0;
+
+    if (
+      bull != null &&
+      (!requireHtfBias || htfBullish) &&
+      (!requireZone || inDiscount) &&
+      (!requireFvg || fvgBull >= 0)
+    ) {
+      const stopDistance = Math.max(stopAtrMult * a, price - bull.low + 0.1 * a);
       return { contractType: "MULTUP", durationTicks: 0, tag: "ilf_ssl_sweep", multiplier: mult, stopDistance, rr };
     }
-    if (bearSweepHigh != null && (!requireHtfBias || htfBearish) && (!requireZone || inPremium)) {
-      const stopDistance = Math.max(stopAtrMult * a, bearSweepHigh - price + 0.1 * a);
+    if (
+      bear != null &&
+      (!requireHtfBias || htfBearish) &&
+      (!requireZone || inPremium) &&
+      (!requireFvg || fvgBear <= 0)
+    ) {
+      const stopDistance = Math.max(stopAtrMult * a, bear.high - price + 0.1 * a);
       return { contractType: "MULTDOWN", durationTicks: 0, tag: "ilf_bsl_sweep", multiplier: mult, stopDistance, rr };
     }
     return null;
+  },
+};
+
+// ============================================================================
+// 13) btc_confluence — voto de 3 dimensões (porte do skill `technical-basic` do
+//     HKUDS/Vibe-Trading), SEM o braço de volume/OBV (Deriv só dá OHLC). O
+//     confirmador de volume vira um proxy de price-action (direção do corpo da
+//     vela). Regra deles:
+//         buy = (trend_bull | mr_oversold) & vol_bull & ~mr_overbought
+//     Dimensões:
+//       1) tendência: EMA12 vs EMA26 + ADX(14) > limiar
+//       2) reversão: preço fora da banda de Bollinger(20,2) + RSI(14) extremo
+//       3) confirmação: corpo da vela a favor (requireConfirm)
+//     flipOnly (padrão): só entra quando o voto vira, não a cada vela.
+//     RESULTADO DO BACKTEST (BTC M5/M15, ~15 dias, 2026-09-07): expectância
+//     -0.37 a -0.57 R em toda variante testada (tf, adx, sem braço de reversão,
+//     bruto sem custo). RUIM no BTC — fica no registo só p/ tuning futuro / outro
+//     símbolo; NÃO tem bot na config.
+// ============================================================================
+const btcConfluence: Strategy = {
+  name: "btc_confluence",
+  warmup: 60,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    if (!ctx.candleClosed) return null;
+    const p = ctx.params;
+    const tfSec = Math.round(p.tf ?? 900); // M15
+    const emaFastP = Math.round(p.emaFast ?? 12);
+    const emaSlowP = Math.round(p.emaSlow ?? 26);
+    const adxP = Math.round(p.adxPeriod ?? 14);
+    const adxThr = p.adxThreshold ?? 22;
+    const bbP = Math.round(p.bbPeriod ?? 20);
+    const bbK = p.bbK ?? 2;
+    const rsiP = Math.round(p.rsiPeriod ?? 14);
+    const rsiOs = p.rsiOs ?? 30;
+    const rsiOb = p.rsiOb ?? 70;
+    const requireConfirm = (p.requireConfirm ?? 1) !== 0;
+    const flipOnly = (p.flipOnly ?? 1) !== 0;
+    const stopAtrMult = p.stopAtrMult ?? 1.5;
+    const rr = p.rr ?? 1.75;
+    const mult = p.multiplier ?? 100;
+    const hStart = p.tradeStart ?? 0;
+    const hEnd = p.tradeEnd ?? 24;
+
+    const m1 = ctx.candles;
+    const tf = rs(m1, tfSec);
+    const closed = tfSec <= 60 ? tf : tf.slice(0, -1);
+    const need = Math.max(emaSlowP, bbP, rsiP, 2 * adxP + 1) + 3;
+    if (closed.length < need) return null;
+    const h = hourUTC(m1[m1.length - 1]!.epoch);
+    if (!inWin(h, hStart, hEnd)) return null;
+
+    const cl = closed.map((c) => c.close);
+    const a = atr(closed.slice(-(adxP + 30)), adxP);
+    if (a == null || a <= 0) return null;
+
+    // voto para uma vela terminada em índice `end` (do array `closed`)
+    const vote = (end: number): number => {
+      const sub = closed.slice(0, end + 1);
+      if (sub.length < need) return 0;
+      const subCl = sub.map((c) => c.close);
+      const eF = ema(subCl, emaFastP);
+      const eS = ema(subCl, emaSlowP);
+      const dx = adx(sub, adxP);
+      const bb = bollinger(subCl, bbP, bbK);
+      const rv = rsi(subCl, rsiP);
+      if (eF == null || eS == null || dx == null || bb == null || rv == null) return 0;
+      const bar = sub[sub.length - 1]!;
+      const trendBull = eF > eS && dx > adxThr;
+      const trendBear = eF < eS && dx > adxThr;
+      const mrOversold = bar.close < bb.lower && rv < rsiOs;
+      const mrOverbought = bar.close > bb.upper && rv > rsiOb;
+      const confBuy = !requireConfirm || bar.close > bar.open;
+      const confSell = !requireConfirm || bar.close < bar.open;
+      const buy = (trendBull || mrOversold) && !mrOverbought && confBuy;
+      const sell = (trendBear || mrOverbought) && !mrOversold && confSell;
+      return buy ? 1 : sell ? -1 : 0;
+    };
+
+    const vNow = vote(closed.length - 1);
+    if (vNow === 0) return null;
+    if (flipOnly && vote(closed.length - 2) === vNow) return null;
+
+    const stopDistance = stopAtrMult * a;
+    if (vNow === 1) {
+      return { contractType: "MULTUP", durationTicks: 0, tag: "conf_buy", multiplier: mult, stopDistance, rr };
+    }
+    return { contractType: "MULTDOWN", durationTicks: 0, tag: "conf_sell", multiplier: mult, stopDistance, rr };
   },
 };
 
@@ -1034,6 +1168,7 @@ for (const s of [
   cryptoEmaFlip,
   cryptoEmaRsiTrend,
   ilfLiquiditySweep,
+  btcConfluence,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {

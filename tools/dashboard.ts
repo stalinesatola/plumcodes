@@ -30,7 +30,7 @@ import {
   hourlyRangeProfile,
   type OHLC,
 } from "../src/util/markets.ts";
-import { setBotEnabled, allBotEnabled } from "../src/util/controls.ts";
+import { setBotEnabled, allBotEnabled, haltActive, setHalt } from "../src/util/controls.ts";
 
 // ------------------------------------------------------------------ ANSI / tema
 const ESC = "\x1b[";
@@ -509,9 +509,20 @@ function render(m: Model, cfg: any): void {
   buf.push(...box(risk, " risk + market ", T.mag));
   const stale = m.botStatus ? Date.now() - m.botStatus.ts > 180_000 : true;
   const halted = m.botStatus?.risk?.halted;
-  const state = halted ? T.red + "HALT" : towardTake >= 1 ? T.green + "TARGET" : m.botStatus && !stale ? T.green + "OK" : T.yellow + "BOT OFFLINE?";
-  buf.push(put(risk, 0, 0, `${T.dim}estado${RESET}  ${BOLD}${state}${RESET}${halted ? ` ${T.red}${String(halted).slice(0, 18)}${RESET}` : ""}`));
+  const kill = m.botStatus?.risk?.killSwitch || haltActive();
+  const state = kill
+    ? T.red + "KILL-SWITCH"
+    : halted ? T.red + "HALT" : towardTake >= 1 ? T.green + "TARGET" : m.botStatus && !stale ? T.green + "OK" : T.yellow + "BOT OFFLINE?";
+  buf.push(put(risk, 0, 0, `${T.dim}estado${RESET}  ${BOLD}${state}${RESET}${halted && !kill ? ` ${T.red}${String(halted).slice(0, 18)}${RESET}` : ""}`));
   buf.push(put(risk, 1, 0, `${T.dim}floor ${T.text}${cfg.risk?.hardFloorBalance ?? 5}${T.dim}  streak→pause ${T.text}${cfg.risk?.globalLossStreakPause ?? 8}${T.dim}  loss ${T.text}${m.botStatus?.risk?.lossStreak ?? 0}${RESET}`));
+  {
+    const tToday = m.botStatus?.risk?.tradesToday;
+    const tMax = m.botStatus?.risk?.maxTradesPerDay ?? cfg.risk?.maxTradesPerDay;
+    const bits: string[] = [];
+    if (kill) bits.push(`${T.red}${BOLD}⛔ data/HALT — [h] libera${RESET}`);
+    if (tMax) bits.push(`${T.dim}trades ${T.text}${tToday ?? 0}/${tMax}${T.dim} dia${RESET}`);
+    if (bits.length) buf.push(put(risk, 2, 0, bits.join(`${T.dim}  ·  ${RESET}`)));
+  }
   // mercado
   const mkt = m.market;
   const ms = mkt ? marketSince(mkt.intervals) : null;
@@ -779,7 +790,7 @@ function render(m: Model, cfg: any): void {
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
           : m.showBots
             ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · a=todos · n=nenhum · [b] fechar${RESET}`
-            : `${T.dim}[q] sair   [r] reconectar   [t] stats 100   [b] operar/bots   [k] reiniciar   [a] conta ${acctLabel}${T.dim}   ${RESET}${mktLbl}${RESET}`;
+            : `${T.dim}[q] sair  [r] reconectar  [t] stats  [b] bots  [k] reiniciar  ${haltActive() ? T.red + "[h] LIBERAR HALT" + T.dim : "[h] halt"}  [a] ${acctLabel}${T.dim}  ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
@@ -1257,6 +1268,10 @@ async function main(): Promise<void> {
         render(m, cfg);
       } else if (key === "k") {
         m.confirmRestart = true;
+        render(m, cfg);
+      } else if (key === "h") {
+        setHalt(!haltActive()); // kill-switch global: cria/remove data/HALT
+        out(`${ESC}2J`);
         render(m, cfg);
       } else if (key === "t") {
         m.showStats = !m.showStats;

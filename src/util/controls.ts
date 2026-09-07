@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 
 /**
  * Liga/desliga bots EM TEMPO REAL, sem reiniciar o processo, via
@@ -64,6 +64,43 @@ export function setBotEnabled(id: string, on: boolean): void {
   }
   cache = obj;
   cacheAt = Date.now();
+}
+
+// ---------------------------------------------------------------------------
+// Kill-switch global por ficheiro: se `data/HALT` existir, NENHUM bot abre
+// posição nova (posições abertas seguem o curso). `touch data/HALT` congela,
+// `rm data/HALT` retoma. Verificado no RiskManager.canTrade(). Cache ~2s.
+// ---------------------------------------------------------------------------
+const HALT_PATH = "data/HALT";
+let haltCache = false;
+let haltAt = 0;
+
+/** O kill-switch global está ativo? (ficheiro data/HALT existe). */
+export function haltActive(): boolean {
+  if (Date.now() - haltAt < 2000) return haltCache;
+  try {
+    haltCache = existsSync(HALT_PATH);
+  } catch {
+    haltCache = false;
+  }
+  haltAt = Date.now();
+  return haltCache;
+}
+
+/** Cria/remove o ficheiro data/HALT (para o monitor). */
+export function setHalt(on: boolean): void {
+  try {
+    if (on) {
+      mkdirSync("data", { recursive: true });
+      writeFileSync(HALT_PATH, `halted ${new Date().toISOString()}\n`);
+    } else if (existsSync(HALT_PATH)) {
+      rmSync(HALT_PATH);
+    }
+  } catch {
+    /* ignore */
+  }
+  haltCache = on;
+  haltAt = Date.now();
 }
 
 /** Mapa id -> ligado (para o monitor). */

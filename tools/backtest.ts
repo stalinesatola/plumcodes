@@ -105,17 +105,21 @@ async function main() {
   if (candles.length === 0) {
     await client.connect();
     console.log(`baixando ~${want} candles de ${args.symbol} (${args.granularity}s)...`);
-    const maxPages = Math.ceil(want / 1000) + 1;
+    const maxPages = Math.ceil(want / 1000) + 6; // folga: a Deriv devolve paginas curtas no meio do historico
     let end = "latest";
+    let dry = 0;
     for (let page = 0; page < maxPages && candles.length < want; page++) {
-      const batch = await client.candlesOHLC(args.symbol, 1000, args.granularity, end);
-      if (!batch.length) break;
+      const batch = await client.candlesOHLC(args.symbol, 1000, args.granularity, end).catch(() => []);
       const older = batch.filter((c) => candles.length === 0 || c.epoch < candles[0]!.epoch);
-      if (older.length === 0) break;
+      // so para quando NAO vem nada mais antigo 2x seguidas (fim real do historico)
+      if (older.length === 0) {
+        if (++dry >= 2) break;
+        continue;
+      }
+      dry = 0;
       candles = [...older, ...candles];
       end = String(older[0]!.epoch - 1);
       process.stdout.write(`\r  ${candles.length} candles...`);
-      if (batch.length < 1000) break;
     }
     process.stdout.write("\n");
     client.disconnect();
@@ -128,7 +132,48 @@ async function main() {
   }
   console.log(`${candles.length} candles. Rodando ${args.strategy}...`);
 
-  const m = runBacktest(candles, args.strategy, args.params);
+  // Serie H1 REAL p/ o contexto de timeframe alto (btc-h1, ilf_liquidity_sweep).
+  // A Deriv so serve ~4000 velas M1 de cripto, entao reamostrar M1 nao chega p/
+  // EMA50/200 no H1 — baixa H1 direto (vai bem mais fundo). So quando a serie
+  // principal e sub-horaria e a estrategia usa H1.
+  let h1: Candle[] = [];
+  const HTF_STRATS = new Set(["gold_h1_trend", "ilf_liquidity_sweep"]);
+  if (args.granularity < 3600 && HTF_STRATS.has(args.strategy) && !args.file) {
+    const h1Cache = `data/bt-cache-${args.symbol}-3600.json`;
+    if (existsSync(h1Cache)) {
+      try {
+        h1 = JSON.parse(readFileSync(h1Cache, "utf8")).candles ?? [];
+      } catch {
+        /* ok */
+      }
+    }
+    if (h1.length < 2000) {
+      await client.connect();
+      console.log(`baixando serie H1 de ${args.symbol} p/ contexto HTF...`);
+      let end = "latest";
+      let dryH1 = 0;
+      for (let page = 0; page < 16 && h1.length < 8000; page++) {
+        const batch = await client.candlesOHLC(args.symbol, 1000, 3600, end).catch(() => []);
+        const older = batch.filter((c) => h1.length === 0 || c.epoch < h1[0]!.epoch);
+        if (older.length === 0) {
+          if (++dryH1 >= 2) break;
+          continue;
+        }
+        dryH1 = 0;
+        h1 = [...older, ...h1];
+        end = String(older[0]!.epoch - 1);
+      }
+      client.disconnect();
+      try {
+        writeFileSync(h1Cache, JSON.stringify({ savedAt: Date.now(), candles: h1 }));
+      } catch {
+        /* ok */
+      }
+    }
+    console.log(`  ${h1.length} velas H1 p/ contexto.`);
+  }
+
+  const m = runBacktest(candles, args.strategy, args.params, h1.length ? h1 : undefined);
   const robust = m.rSum > 2 * m.maxDd && m.trades >= 50;
   console.log("\n===== RESULTADO (aproximado) =====");
   console.log(`estrategia      ${args.strategy}  ${args.symbol}`);

@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 4 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido em 2026-09-04 — 0 dias positivos, ~-$45 acumulado.) Controle manual: tecla [b] no monitor. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
+  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 4 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH(strict) + FVG + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido 2026-09-04. btc_confluence — porte do skill technical-basic do HKUDS — testou RUIM no BTC (exp -0.5R), fica so no registo p/ tuning futuro.) Controle manual: tecla [b] no monitor; kill-switch global: `touch data/HALT` (ou tecla [h]) congela tudo. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, teto 40 trades/dia. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -12,7 +12,8 @@
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
     "cooldownMinutes": 30,
-    "maxRiskPerTradePct": 1.5
+    "maxRiskPerTradePct": 1.5,
+    "maxTradesPerDay": 40
   },
   "learning": {
     "//": "Bandit Thompson + hill-climb + kill/probation. exploreTrades: 15 operacoes sem filtro por aposta p/ calibrar.",

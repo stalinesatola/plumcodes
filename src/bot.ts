@@ -514,6 +514,7 @@ export class Bot {
       }
 
       this.risk.notifyOpen();
+      this.risk.notifyEntered();
       const buy = await this.client.buyProposal(proposal.id, proposal.askPrice);
       this.currentContractId = buy.contractId;
       this.openMeta = {
