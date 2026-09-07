@@ -206,6 +206,7 @@ interface Model {
   botCursor: number; // linha selecionada no overlay [b]
   tradeTypes: Record<string, Record<string, string[]>>; // símbolo -> categoria -> tipos
   disconnectedSince: number; // ts do início da queda de ligação (0 = ligado)
+  lineKeys: boolean; // stdin não é TTY -> atalhos exigem Enter
   err: string;
 }
 
@@ -790,7 +791,7 @@ function render(m: Model, cfg: any): void {
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
           : m.showBots
             ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · a=todos · n=nenhum · [b] fechar${RESET}`
-            : `${T.dim}[q] sair  [r] reconectar  [t] stats  [b] bots  [k] reiniciar  ${haltActive() ? T.red + "[h] LIBERAR HALT" + T.dim : "[h] halt"}  [a] ${acctLabel}${T.dim}  ${RESET}${mktLbl}${RESET}`;
+            : `${m.lineKeys ? T.yellow + "⌨ tecla+Enter  " + T.dim : ""}${T.dim}[q] sair  [r] reconectar  [t] stats  [b] bots  [k] reiniciar  ${haltActive() ? T.red + "[h] LIBERAR HALT" + T.dim : "[h] halt"}  [a] ${acctLabel}${T.dim}  ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
@@ -935,6 +936,7 @@ async function main(): Promise<void> {
     botCursor: 0,
     tradeTypes: {},
     disconnectedSince: 0,
+    lineKeys: false,
     err: "",
   };
 
@@ -1217,11 +1219,23 @@ async function main(): Promise<void> {
   });
 
   // ---- atalhos de teclado ----
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
+  // raw mode só quando stdin é TTY; se o terminal/host não expõe stdin como TTY
+  // (acontece em alguns setups do Windows), o handler continua ligado em modo
+  // LINHA — a tecla chega ao carregar Enter. Os atalhos nunca ficam mortos.
+  let rawOk = false;
+  try {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+      rawOk = true;
+    }
+  } catch {
+    /* terminal não permite raw mode */
+  }
+  m.lineKeys = !rawOk;
+  {
     process.stdin.resume();
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (key: string) => {
+    const processKey = (key: string) => {
       if (key === "" || key === "q") {
         leaveAlt();
         process.exit(0);
@@ -1294,6 +1308,19 @@ async function main(): Promise<void> {
           render(m, cfg);
         }
       }
+    };
+    process.stdin.on("data", (raw: string) => {
+      if (raw.charCodeAt(0) === 27) return processKey(raw); // escape seq (setas) — modo raw
+      if (raw === "\x03") return processKey("\x03");
+      if (raw.includes("\n") || raw.includes("\r")) {
+        // modo linha: um chunk pode trazer várias teclas ("t\nq\n")
+        for (const p of raw.split(/\r?\n/)) {
+          const k = p.trim();
+          if (k) processKey(k);
+        }
+        return;
+      }
+      processKey(raw); // modo raw: 1 char
     });
   }
 }
