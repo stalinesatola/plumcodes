@@ -101,6 +101,7 @@ async function main() {
   await client.connect();
 
   const rows: { symbol: string; strategy: string; m: ReturnType<typeof runBacktest> }[] = [];
+  const counts: number[] = [];
   for (const symbol of symbols) {
     process.stdout.write(`${symbol}: baixando... `);
     let candles: Candle[];
@@ -110,6 +111,11 @@ async function main() {
       console.log(`erro (${(e as Error).message})`);
       continue;
     }
+    if (candles.length < want * 0.5) {
+      // a Deriv nao serve M1 de forex antes da abertura do mercado (fim de semana)
+      const days = candles.length ? (candles[candles.length - 1]!.epoch - candles[0]!.epoch) / 86400 : 0;
+      process.stdout.write(`⚠ so ${candles.length}/${want} (${days.toFixed(1)}d) `);
+    }
     let h1: Candle[] = [];
     if (needH1) {
       try {
@@ -118,6 +124,7 @@ async function main() {
         /* ok */
       }
     }
+    counts.push(candles.length);
     process.stdout.write(`${candles.length} candles${h1.length ? ` +${h1.length} H1` : ""}, simulando `);
     for (const st of strategies) {
       const m = runBacktest(candles, st.trim(), { multiplier: 100, rr: 2 }, h1.length ? h1 : undefined);
@@ -130,7 +137,12 @@ async function main() {
 
   rows.sort((a, b) => b.m.expectancy - a.m.expectancy);
 
-  console.log(`\n===== RANKING (${want} candles M1, ~${Math.round((want / 60 / 24) * 10) / 10} dias) =====`);
+  const lo = counts.length ? Math.min(...counts) : 0;
+  const hi = counts.length ? Math.max(...counts) : 0;
+  const shortfall = lo < want * 0.5;
+  console.log(
+    `\n===== RANKING (M1: ${lo === hi ? hi : `${lo}–${hi}`} velas ≈ ${(lo / 60 / 24).toFixed(1)}–${(hi / 60 / 24).toFixed(1)}d${shortfall ? ` ⚠ pedidos ${want}, a Deriv nao serve M1 de forex antes da ultima abertura de mercado` : ""}) =====`,
+  );
   console.log("símbolo      estratégia   trades  winrate  expectancy(R)  Racum   maxDD   L/S");
   console.log("-".repeat(82));
   for (const { symbol, strategy, m } of rows) {

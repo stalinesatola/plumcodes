@@ -1,5 +1,5 @@
 {
-  "//": "BTC/USD (4 bots) + forex (fx-eurusd-hft; mais pares a entrar apos o backtest da bateria forex). Deriv so oferece MULTUP/MULTDOWN em cripto/ouro/forex. Bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH(strict) + FVG + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido 2026-09-04. btc_confluence — porte do skill technical-basic do HKUDS — testou RUIM no BTC (exp -0.5R), fica so no registo p/ tuning futuro.) Controle manual: tecla [b] no monitor; kill-switch global: `touch data/HALT` (ou tecla [h]) congela tudo. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, teto 40 trades/dia. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
+  "//": "BTC (btc-momo/h1/meltdown/ilf/sessionbrk) + forex. fx-eurusd-hft = HFT scalper M1 (spec do user, NAO backtestavel — forex M1 na Deriv = ~35h). fx-sbrk-eur/gbp/jpy/aud = forward-test do gold_session_breakout (unica estrategia com edge liquido +0.039R no backtest, em BTC; MARGINAL). Comparar WR/expectancia entre pares no [t]/learning ao longo dos dias. Deriv so oferece MULTUP/MULTDOWN em cripto/ouro/forex. Bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH(strict) + FVG + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido 2026-09-04. btc_confluence — porte do skill technical-basic do HKUDS — testou RUIM no BTC (exp -0.5R), fica so no registo p/ tuning futuro.) Controle manual: tecla [b] no monitor; kill-switch global: `touch data/HALT` (ou tecla [h]) congela tudo. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, teto 40 trades/dia. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 6,
+    "maxConcurrentBots": 12,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -257,6 +257,87 @@
         "trailGapR": 0.3
       },
       "botDailyStopPct": 3,
+      "botLossStreakStop": 4
+    },
+    {
+      "//": "gold_session_breakout foi a UNICA estrategia com edge liquido positivo em qualquer mercado no backtest da bateria (BTC: 60 trades, WR 38.3% vs 33.3% breakeven, exp +0.039R liquido / +0.150R bruto). MARGINAL (n baixo, DD ~3x Racum) — 'keep watching', nao um edge provado. Rompimento de canal Donchian M15 (chanLen 16 = 4h) + filtro ATR. Aqui em BTC 24/7.",
+      "id": "btc-sessionbrk",
+      "enabled": true,
+      "strategy": "gold_session_breakout",
+      "symbol": "cryBTCUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 2, "martingale": { "enabled": false, "factor": 2, "maxSteps": 2 } },
+      "params": { "tradeStart": 0, "tradeEnd": 24, "chanLen": 16, "atrMult": 1.2, "bufferFrac": 0.0002, "maxStopPct": 0.004, "multiplier": 100, "rr": 2 },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 120,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": { "breakEvenAtR": 1, "trailAfterR": 1.5, "trailGapR": 0.6 },
+      "botStopLossUsd": 500,
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 5
+    },
+    {
+      "//": "FORWARD-TEST forex #1 — gold_session_breakout em EUR/USD. O backtest de forex NAO pode ser feito (a Deriv so serve ~35h de M1 de forex, mercado fecha fim de semana). Este bot em demo acumula o historico que falta E testa se o edge marginal do session_breakout se sustenta. Sessao Londres+NY (7-19 UTC). Comparar WR/expectancia entre os fx-sbrk-* no [t] / learning ao longo dos dias.",
+      "id": "fx-sbrk-eur",
+      "enabled": true,
+      "strategy": "gold_session_breakout",
+      "symbol": "frxEURUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 1, "martingale": { "enabled": false, "factor": 2, "maxSteps": 2 } },
+      "params": { "tradeStart": 7, "tradeEnd": 19, "chanLen": 16, "atrMult": 1.2, "bufferFrac": 0.0002, "maxStopPct": 0.0025, "multiplier": 100, "rr": 2 },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 90,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": { "breakEvenAtR": 1, "trailAfterR": 1.5, "trailGapR": 0.6 },
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 4
+    },
+    {
+      "//": "FORWARD-TEST forex #2 — gold_session_breakout em GBP/USD (mais range que EUR/USD).",
+      "id": "fx-sbrk-gbp",
+      "enabled": true,
+      "strategy": "gold_session_breakout",
+      "symbol": "frxGBPUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 1, "martingale": { "enabled": false, "factor": 2, "maxSteps": 2 } },
+      "params": { "tradeStart": 7, "tradeEnd": 19, "chanLen": 16, "atrMult": 1.2, "bufferFrac": 0.0002, "maxStopPct": 0.003, "multiplier": 100, "rr": 2 },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 90,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": { "breakEvenAtR": 1, "trailAfterR": 1.5, "trailGapR": 0.6 },
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 4
+    },
+    {
+      "//": "FORWARD-TEST forex #3 — gold_session_breakout em USD/JPY.",
+      "id": "fx-sbrk-jpy",
+      "enabled": true,
+      "strategy": "gold_session_breakout",
+      "symbol": "frxUSDJPY",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 1, "martingale": { "enabled": false, "factor": 2, "maxSteps": 2 } },
+      "params": { "tradeStart": 7, "tradeEnd": 19, "chanLen": 16, "atrMult": 1.2, "bufferFrac": 0.0002, "maxStopPct": 0.003, "multiplier": 100, "rr": 2 },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 90,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": { "breakEvenAtR": 1, "trailAfterR": 1.5, "trailGapR": 0.6 },
+      "botDailyStopPct": 4,
+      "botLossStreakStop": 4
+    },
+    {
+      "//": "FORWARD-TEST forex #4 — gold_session_breakout em AUD/USD.",
+      "id": "fx-sbrk-aud",
+      "enabled": true,
+      "strategy": "gold_session_breakout",
+      "symbol": "frxAUDUSD",
+      "durationTicks": 0,
+      "stake": { "base": 2, "pctOfBalance": 1, "martingale": { "enabled": false, "factor": 2, "maxSteps": 2 } },
+      "params": { "tradeStart": 7, "tradeEnd": 19, "chanLen": 16, "atrMult": 1.2, "bufferFrac": 0.0002, "maxStopPct": 0.003, "multiplier": 100, "rr": 2 },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 90,
+      "minMinutesBetweenTrades": 20,
+      "manageStop": { "breakEvenAtR": 1, "trailAfterR": 1.5, "trailGapR": 0.6 },
+      "botDailyStopPct": 4,
       "botLossStreakStop": 4
     }
   ]
