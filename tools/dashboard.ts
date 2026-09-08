@@ -193,6 +193,7 @@ interface Model {
   learn: any;
   trades: { open: OpenPos[]; closed: ClosedTrade[] };
   market: { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string } | null;
+  markets: Record<string, { open: boolean; live: boolean; intervals: Array<{ open: number; close: number }>; note: string }>; // por símbolo (forex fecha fim de semana)
   btcDay: { open: number; prevClose: number } | null; // vela D1 do BTC/USD: abertura de hoje + fecho de ontem
   btcVol: { atrPct: number | null; base: number | null; hourly: number[] } | null; // regime de volatilidade + perfil horário (H1)
   session: any;
@@ -525,10 +526,10 @@ function render(m: Model, cfg: any): void {
     if (tMax) bits.push(`${T.dim}trades ${T.text}${tToday ?? 0}/${tMax}${T.dim} dia${RESET}`);
     if (bits.length) buf.push(put(risk, 2, 0, bits.join(`${T.dim}  ·  ${RESET}`)));
   }
-  // mercado
-  const mkt = m.market;
+  // mercado (do par em foco — forex fecha fim de semana)
+  const mkt = m.markets[sym0] ?? m.market;
   const ms = mkt ? marketSince(mkt.intervals) : null;
-  buf.push(put(risk, 3, 0, `${T.dim}${sym0} mercado${RESET}`));
+  buf.push(put(risk, 3, 0, `${T.dim}${shortSym(sym0)} mercado${RESET}`));
   if (mkt && ms) {
     if (ms.open) {
       buf.push(put(risk, 4, 0, `  ${T.green}${BOLD}ABERTO${RESET}${T.dim}  ${ms.untilMs > 48 * 3600_000 ? "24/7" : `aberto há ${fmtShort(ms.sinceMs)}`}${RESET}`));
@@ -638,12 +639,12 @@ function render(m: Model, cfg: any): void {
   const sym = sym0;
   const ser = m.prices.get(sym) ?? [];
   const last = m.lastTick.get(sym) ?? (ser.length ? ser[ser.length - 1]! : 0);
-  const dec = 2; // cryBTCUSD
+  const dec = symDec(sym);
 
   // ---- PRICE (largo) ----
   const pTop = top + PANEL_H;
   const avail = H - pTop - 2; // -2: reserva a linha do rodapé
-  const priceH = Math.max(9, Math.min(16, Math.floor(avail * 0.42)));
+  const priceH = Math.max(10, Math.min(17, Math.floor(avail * 0.42)));
   const pr: Rect = { x: 2, y: pTop, w: W - 3, h: priceH };
   const first = ser.length ? ser[0]! : last;
   const chg = last - first;
@@ -654,21 +655,38 @@ function render(m: Model, cfg: any): void {
   buf.push(
     ...box(
       pr,
-      ` ${sym}  ${T.text}${last.toFixed(dec)}${RESET}  ${cc}${chg >= 0 ? "▲" : "▼"} ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(3)}%${RESET} `,
+      ` ${sym}  ${T.text}${last.toFixed(dec)}${RESET}  ${cc}${chg >= 0 ? "▲" : "▼"} ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(3)}%${RESET}${T.dim} · [p] par ${RESET}`,
       T.cyan,
     ),
   );
-  brailleGraph(ser, pr.w - 4, pr.h - 2).forEach((ln, gi) => buf.push(put(pr, gi, 0, ln)));
-  buf.push(put(pr, 0, pr.w - 24, `${T.dim}hi ${hi.toFixed(dec)}${RESET}`));
-  buf.push(put(pr, pr.h - 3, pr.w - 24, `${T.dim}lo ${lo.toFixed(dec)}${RESET}`));
+  // ticker de todos os pares operados (row 0), ▸ no ativo
+  {
+    const openBy = new Map<string, number>();
+    for (const o of m.trades.open) openBy.set(o.sym ?? BTC_SYMBOL, (openBy.get(o.sym ?? BTC_SYMBOL) ?? 0) + 1);
+    let tick = "";
+    for (const s of symbols) {
+      const sr = m.prices.get(s) ?? [];
+      const lp = m.lastTick.get(s) ?? (sr.length ? sr[sr.length - 1]! : 0);
+      const f0 = sr.length ? sr[0]! : lp;
+      const pc = f0 ? ((lp - f0) / f0) * 100 : 0;
+      const on = openBy.get(s) ?? 0;
+      const cur = s === sym;
+      const col = cur ? T.cyan + BOLD : pc > 0 ? T.green : pc < 0 ? T.red : T.dim;
+      tick += `${cur ? T.cyan + "▸" : " "}${col}${shortSym(s)}${RESET}${T.dim}${lp ? " " + lp.toFixed(symDec(s)) : ""}${on ? T.yellow + ` ●${on}` : ""}${RESET}   `;
+    }
+    buf.push(put(pr, 0, 0, clip(tick, pr.w - 2)));
+  }
+  brailleGraph(ser, pr.w - 4, pr.h - 3).forEach((ln, gi) => buf.push(put(pr, gi + 1, 0, ln)));
+  buf.push(put(pr, 1, pr.w - 26, `${T.dim}hi ${hi.toFixed(dec)}${RESET}`));
+  buf.push(put(pr, pr.h - 3, pr.w - 26, `${T.dim}lo ${lo.toFixed(dec)}${RESET}`));
   buf.push(put(pr, pr.h - 3, 0, `${T.dim}${ser.length} ticks${RESET}`));
-  // marcadores de posição aberta no gráfico
+  // marcadores de posição aberta no gráfico do par atual
   m.trades.open
     .filter((o) => (o.sym ?? BTC_SYMBOL) === sym)
-    .slice(0, pr.h - 4)
+    .slice(0, pr.h - 5)
     .forEach((o, oi) => {
       const arrow = o.dir === "up" ? T.green + "▲ LONG " : T.red + "▼ SHORT";
-      buf.push(put(pr, 1 + oi, pr.w - 24, `${arrow} @ ${o.entry.toFixed(dec)}${RESET}`));
+      buf.push(put(pr, 2 + oi, pr.w - 26, `${arrow} @ ${o.entry.toFixed(dec)}${RESET}`));
     });
 
   // ---- POSITIONS + HISTORY ----
@@ -684,8 +702,8 @@ function render(m: Model, cfg: any): void {
     m.trades.open.slice(0, posR.h - 3).forEach((o, oi) => {
       const dcol = o.dir === "up" ? T.green : T.red;
       const rowSym = o.sym ?? BTC_SYMBOL;
-      const rowLast = m.lastTick.get(rowSym) ?? (m.prices.get(rowSym)?.slice(-1)[0] ?? last);
-      const rowDec = 2;
+      const rowLast = m.lastTick.get(rowSym) ?? (m.prices.get(rowSym)?.slice(-1)[0] ?? o.entry);
+      const rowDec = symDec(rowSym);
       const uR = o.stopDist > 0 && rowLast ? ((rowLast - o.entry) / o.stopDist) * (o.dir === "up" ? 1 : -1) : 0;
       const rcol = uR >= 0 ? T.green : T.red;
       const age = humanDur(Date.now() - o.ts).replace(/^0h /, "");
@@ -777,10 +795,10 @@ function render(m: Model, cfg: any): void {
   // ---- rodapé / atalhos ----
   const acctLabel =
     m.monitorMode === "real" ? `${T.red}REAL${RESET}` : `${T.blue}DEMO${RESET}`;
-  const mktLbl = m.market
+  const mktLbl = mkt
     ? ms?.open
-      ? `${T.green}${sym0} ABERTO${RESET}${T.dim}${ms.untilMs > 48 * 3600_000 ? " · 24/7" : ` · fecha ${fmtShort(ms.untilMs)}`}`
-      : `${T.red}${sym0} FECHADO${RESET}${T.dim} · ${ms?.label ?? ""}`
+      ? `${T.green}${shortSym(sym0)} ABERTO${RESET}${T.dim}${ms.untilMs > 48 * 3600_000 ? " · 24/7" : ` · fecha ${fmtShort(ms.untilMs)}`}`
+      : `${T.red}${shortSym(sym0)} FECHADO${RESET}${T.dim} · ${ms?.label ?? ""}`
     : `${T.dim}mercado …`;
   const foot = m.restartMsg
     ? `${T.yellow}${m.restartMsg}${RESET}`
@@ -792,7 +810,7 @@ function render(m: Model, cfg: any): void {
           ? `${T.dim}[t] fechar   [q] sair   estatística dos últimos 100 trades${RESET}`
           : m.showBots
             ? `${T.dim}↑↓ mover · espaço/1-9 liga-desliga · a=todos · n=nenhum · [b] fechar${RESET}`
-            : `${m.lineKeys ? T.yellow + "⌨ tecla+Enter  " + T.dim : ""}${T.dim}[q] sair  [r] reconectar  [t] stats  [b] bots  [k] reiniciar  ${haltActive() ? T.red + "[h] LIBERAR HALT" + T.dim : "[h] halt"}  [a] ${acctLabel}${T.dim}  ${RESET}${mktLbl}${RESET}`;
+            : `${m.lineKeys ? T.yellow + "⌨ tecla+Enter  " + T.dim : ""}${T.dim}[q] sair  [r] recon  [p] par  [t] stats  [b] bots  [k] restart  ${haltActive() ? T.red + "[h] LIBERAR HALT" + T.dim : "[h] halt"}  [a] ${acctLabel}${T.dim}  ${RESET}${mktLbl}${RESET}`;
   buf.push(at(H, 2) + pad(clip(foot, W - 3), W - 3));
 
   if (m.showStats) renderStats(m, W, H, buf);
@@ -802,6 +820,13 @@ function render(m: Model, cfg: any): void {
 }
 
 const shortSym = (s: string) => s.replace(/^frx/, "").replace(/^cry/, "");
+/** casas decimais por símbolo: cripto/ouro 2, pares JPY 3, restante forex 5. */
+const symDec = (s: string): number => {
+  if (s.startsWith("cry") || /XAU|XAG/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  if (s.startsWith("frx")) return 5;
+  return 2;
+};
 
 /** Overlay [b] — escolher o que operar: liga/desliga bots (data/bot-enabled.json). */
 function renderBots(m: Model, W: number, H: number, cfg: any, buf: string[]): void {
@@ -923,6 +948,7 @@ async function main(): Promise<void> {
     learn: loadLearn(),
     trades: loadTrades(cfg),
     market: null,
+    markets: {},
     btcDay: null,
     btcVol: null,
     session: loadSession(),
@@ -1144,11 +1170,12 @@ async function main(): Promise<void> {
     } catch {
       /* sem histórico */
     }
-    // trade types por símbolo (dos bots do config) — uma vez basta
-    const syms = [...new Set((cfg.bots ?? []).map((b: any) => b.symbol).filter(Boolean))] as string[];
+    // trade types + horário de mercado por símbolo (dos bots do config)
+    const syms = [...new Set([BTC_SYMBOL, ...((cfg.bots ?? []).map((b: any) => b.symbol).filter(Boolean) as string[])])];
     for (const s of syms) {
-      if (m.tradeTypes[s]) continue;
-      m.tradeTypes[s] = await client.contractsFor(s).catch(() => ({}));
+      if (!m.tradeTypes[s]) m.tradeTypes[s] = await client.contractsFor(s).catch(() => ({}));
+      const sch = await client.marketSchedule(s).catch(() => null);
+      if (sch) m.markets[s] = sch;
     }
   }
 
@@ -1215,6 +1242,7 @@ async function main(): Promise<void> {
         else if (cmd === "unhalt") setHalt(false);
         else if (cmd === "stats") m.showStats = !m.showStats;
         else if (cmd === "bots") m.showBots = !m.showBots;
+        else if (cmd === "par" || cmd === "pair") m.priceIdx = (m.priceIdx + 1) % (m.prices.size || 1);
         else if (cmd === "reconnect" && client) client.forceReconnect();
         else if (cmd === "quit") {
           leaveAlt();
@@ -1304,6 +1332,11 @@ async function main(): Promise<void> {
         render(m, cfg);
       } else if (key === "b") {
         m.showBots = true;
+        out(`${ESC}2J`);
+        render(m, cfg);
+      } else if (key === "p" || key === "\x1b[C" || key === "\x1b[D") {
+        const n = m.prices.size || 1;
+        m.priceIdx = (m.priceIdx + (key === "\x1b[D" ? n - 1 : 1)) % n;
         out(`${ESC}2J`);
         render(m, cfg);
       } else if (key === "k") {
