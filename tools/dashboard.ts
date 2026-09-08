@@ -455,7 +455,7 @@ function render(m: Model, cfg: any): void {
     : m.err
       ? T.red + "● " + m.err + (downFor ? ` (${downFor})` : "")
       : T.yellow + "● reconnecting" + (downFor ? ` ${downFor}` : "") + `${T.dim} · [r] agora`;
-  const head = `${T.cyan}${BOLD}deriv quant research${RESET}${T.dim} · monitor${RESET}   ${conn}${RESET}${T.dim}   up ${humanDur(Date.now() - m.startedAt)}   ${clock}${RESET}`;
+  const head = `${T.cyan}${BOLD}plumcodes${RESET}${T.dim} · monitor${RESET}   ${conn}${RESET}${T.dim}   up ${humanDur(Date.now() - m.startedAt)}   ${clock}${RESET}`;
   buf.push(at(1, 2) + pad(clip(head, W - 3), W - 3));
 
   const symbols = [...m.prices.keys()];

@@ -5,7 +5,7 @@ const path = require("node:path");
 module.exports = {
   apps: [
     {
-      name: "deriv-multibot",
+      name: "plumcodes",
       script: "src/index.ts",
       interpreter: "node", // Node >= 22.18 roda .ts direto
       cwd: __dirname,

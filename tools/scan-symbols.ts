@@ -1,12 +1,14 @@
 /**
- * Escaneia os índices sintéticos da Deriv que suportam multiplicadores e roda as
- * estratégias de candle (m1_scalp, m1_amd) em cada um, rankeando por expectancy.
+ * Escaneia símbolos da Deriv que suportam multiplicadores e roda cada estratégia
+ * de candle em cada um, rankeando por expectancy / taxa de acerto.
  *
  * Uso:
- *   node --env-file=.env tools/scan-symbols.ts [--candles 4000] [--strategies m1_scalp,m1_amd] [--group vol|jump|boomcrash|step|all]
+ *   node --env-file=.env tools/scan-symbols.ts [--candles 20000] [--strategies a,b,c]
+ *       [--group forex|crypto|vol|jump|boomcrash|step|all] [--symbols frxEURUSD,frxGBPUSD]
  *
- * Baixa candles M1 de cada símbolo (com cache em data/), simula, e imprime uma
- * tabela. Não é prova — é um filtro para escolher em qual símbolo focar o
+ * Default: group=forex, todas as estratégias de candle/multiplicador relevantes.
+ * Baixa M1 (+ H1 p/ estratégias de timeframe alto) com cache em data/, simula, e
+ * imprime a tabela. Não é prova — é um filtro para escolher ONDE fazer o
  * forward-test em conta demo.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -19,30 +21,57 @@ const GROUPS: Record<string, string[]> = {
   jump: ["JD10", "JD25", "JD50", "JD75", "JD100"],
   boomcrash: ["BOOM300N", "BOOM500", "BOOM1000", "CRASH300N", "CRASH500", "CRASH1000"],
   step: ["stpRNG", "stpRNG2", "stpRNG3"],
+  // majors de forex com MULTUP/MULTDOWN na Deriv (NZDUSD só tem CALL/PUT — fora)
+  forex: [
+    "frxEURUSD",
+    "frxGBPUSD",
+    "frxUSDJPY",
+    "frxAUDUSD",
+    "frxUSDCAD",
+    "frxUSDCHF",
+    "frxEURGBP",
+    "frxEURJPY",
+    "frxGBPJPY",
+  ],
+  crypto: ["cryBTCUSD"],
 };
 GROUPS.all = [...GROUPS.vol, ...GROUPS.jump, ...GROUPS.boomcrash, ...GROUPS.step];
+
+// estratégias de candle/multiplicador que fazem sentido em forex/cripto
+const DEFAULT_STRATS =
+  "gold_ny_momo,gold_meanrev_london,gold_trend_m15,gold_session_breakout,gold_trend_scalp,gold_h1_trend,crypto_ema_rsi_trend,ilf_liquidity_sweep";
+const HTF_STRATS = new Set(["gold_h1_trend", "ilf_liquidity_sweep"]);
 
 function arg(name: string, def: string): string {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : def;
 }
 
-async function getCandles(client: DerivClient, symbol: string, want: number): Promise<Candle[]> {
-  const cachePath = `data/bt-cache-${symbol}-60.json`;
+async function getCandles(
+  client: DerivClient,
+  symbol: string,
+  want: number,
+  granSec = 60,
+): Promise<Candle[]> {
+  const cachePath = `data/bt-cache-${symbol}-${granSec}.json`;
   if (existsSync(cachePath)) {
     const c = JSON.parse(readFileSync(cachePath, "utf8"));
     if (Date.now() - c.savedAt < 30 * 60_000 && c.candles.length >= want) return c.candles.slice(-want);
   }
   let candles: Candle[] = [];
   let end = "latest";
-  for (let page = 0; page < Math.ceil(want / 1000) + 1 && candles.length < want; page++) {
-    const batch = await client.candlesOHLC(symbol, 1000, 60, end);
-    if (!batch.length) break;
+  let dry = 0;
+  // sem parar em batch<1000: a Deriv devolve páginas curtas no meio do histórico
+  for (let page = 0; page < Math.ceil(want / 1000) + 8 && candles.length < want; page++) {
+    const batch = await client.candlesOHLC(symbol, 1000, granSec, end).catch(() => []);
     const older = batch.filter((c) => candles.length === 0 || c.epoch < candles[0]!.epoch);
-    if (!older.length) break;
+    if (!older.length) {
+      if (++dry >= 2) break;
+      continue;
+    }
+    dry = 0;
     candles = [...older, ...candles];
     end = String(older[0]!.epoch - 1);
-    if (batch.length < 1000) break;
   }
   try {
     mkdirSync("data", { recursive: true });
@@ -55,10 +84,11 @@ async function getCandles(client: DerivClient, symbol: string, want: number): Pr
 
 async function main() {
   if (!process.env.DERIV_TOKEN) throw new Error("DERIV_TOKEN ausente");
-  const want = Number(arg("candles", "4000"));
-  const strategies = arg("strategies", "m1_scalp,m1_amd").split(",");
-  const group = arg("group", "vol");
-  const symbols = GROUPS[group] ?? GROUPS.vol!;
+  const want = Number(arg("candles", "20000"));
+  const strategies = arg("strategies", DEFAULT_STRATS).split(",");
+  const group = arg("group", "forex");
+  const symbols = arg("symbols", "") ? arg("symbols", "").split(",") : (GROUPS[group] ?? GROUPS.forex!);
+  const needH1 = strategies.some((s) => HTF_STRATS.has(s.trim()));
 
   const client = new DerivClient({
     token: process.env.DERIV_TOKEN,
@@ -80,9 +110,17 @@ async function main() {
       console.log(`erro (${(e as Error).message})`);
       continue;
     }
-    process.stdout.write(`${candles.length} candles, simulando `);
+    let h1: Candle[] = [];
+    if (needH1) {
+      try {
+        h1 = await getCandles(client, symbol, 8000, 3600);
+      } catch {
+        /* ok */
+      }
+    }
+    process.stdout.write(`${candles.length} candles${h1.length ? ` +${h1.length} H1` : ""}, simulando `);
     for (const st of strategies) {
-      const m = runBacktest(candles, st.trim(), { multiplier: 100, rr: st.includes("amd") ? 1.5 : 2 });
+      const m = runBacktest(candles, st.trim(), { multiplier: 100, rr: 2 }, h1.length ? h1 : undefined);
       rows.push({ symbol, strategy: st.trim(), m });
       process.stdout.write(".");
     }

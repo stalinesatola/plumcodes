@@ -63,6 +63,6 @@ aprendizado segurando as perdas, não uma vantagem estatística. Para edge de ve
 
 1. Ajuste o `symbol` do bot no `config.json` (e o `multiplier` conforme a vol:
    mais vol → multiplicador menor para o stop em USD não estourar o stake).
-2. `pm2 restart deriv-multibot`.
+2. `pm2 restart plumcodes`.
 3. Forward-test em demo dias. Use `strategy-review` para conferir se a expectancy
    real bate com o scan.

@@ -121,7 +121,7 @@ Estratégias de dígito não são backtestáveis — só forward-test em demo.
 ## Passo 6 — Aplicar
 
 Só depois do OK do usuário: aplique os diffs, rode `npx tsc --noEmit`, e lembre o
-usuário de `pm2 restart deriv-multibot`. Se mudou parâmetros que invalidam o
+usuário de `pm2 restart plumcodes`. Se mudou parâmetros que invalidam o
 aprendizado acumulado de uma tag, sugira apagar só aquela entrada em
 `data/learn-state.json` (não o arquivo todo).
 
