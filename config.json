@@ -1,5 +1,5 @@
 {
-  "//": "FOCO: so BTC/USD (cryBTCUSD). Deriv so oferece MULTUP/MULTDOWN neste simbolo. 4 bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH(strict) + FVG + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido 2026-09-04. btc_confluence — porte do skill technical-basic do HKUDS — testou RUIM no BTC (exp -0.5R), fica so no registo p/ tuning futuro.) Controle manual: tecla [b] no monitor; kill-switch global: `touch data/HALT` (ou tecla [h]) congela tudo. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, teto 40 trades/dia. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
+  "//": "BTC/USD (4 bots) + forex (fx-eurusd-hft; mais pares a entrar apos o backtest da bateria forex). Deriv so oferece MULTUP/MULTDOWN em cripto/ouro/forex. Bots INDEPENDENTES, 24/7 — cada um roda a sua propria logica. btc-momo: momentum (corpo de vela M5 >= forceMult*ATR), stake 2% da banca. btc-h1: tendencia EMA50+EMA200 no H1 + RSI + filtro ATR. btc-meltdown: EMA20+RSI(14) M5 + martingale 'meltdown' (reseta apos 3 perdas seguidas) + meta/limite fixos em USD. btc-ilf: Institutional Liquidity Framework — liquidity sweep + BOS/CHoCH(strict) + FVG + vies HTF + zona premium/discount, RR 2, sem martingale. (btc-emaflip removido 2026-09-04. btc_confluence — porte do skill technical-basic do HKUDS — testou RUIM no BTC (exp -0.5R), fica so no registo p/ tuning futuro.) Controle manual: tecla [b] no monitor; kill-switch global: `touch data/HALT` (ou tecla [h]) congela tudo. Guardas globais: stop diario 15%, pausa apos 6 perdas seguidas, hard floor $5, teto 40 trades/dia. AVISO: a comissao do multiplicador no BTC e ~2-4x a do ouro; martingale e EV-negativo — nenhum mercado da Deriv tem edge liquido (FINDINGS.md); isto e demo/forward-test.",
   "account": {
     "mode": "demo",
     "currency": "USD"
@@ -7,7 +7,7 @@
   "risk": {
     "dailyStopLossPct": 15,
     "dailyTakeProfitPct": 12,
-    "maxConcurrentBots": 5,
+    "maxConcurrentBots": 6,
     "maxOpenContractsPerBot": 1,
     "hardFloorBalance": 5,
     "globalLossStreakPause": 6,
@@ -210,6 +210,54 @@
       },
       "botDailyStopPct": 4,
       "botLossStreakStop": 3
+    },
+    {
+      "//": "EUR/USD HFT scalper M1 (spec do usuario, porte de EA MQL4). Avalia a cada TICK: EMA5 x EMA10 + RSI(7) + filtro de velocidade do preco. Stop ~10 pips, alvo rr 1.5. Sessoes UTC: Londres 7-12, overlap 12-17, US 20-22. Pula NFP. Trailing ~5 pips (manageStop). AVISO: scalp de 10 pips com multiplicador -> comissao (~0.05-0.15 R/round-trip) pesa MUITO; xau-hf e btc-emaflip (scalps parecidos) deram negativo. stake $50 fixo, freios apertados. Forward-test em demo, a validar no backtest.",
+      "id": "fx-eurusd-hft",
+      "enabled": true,
+      "strategy": "fx_hft_scalp",
+      "symbol": "frxEURUSD",
+      "durationTicks": 0,
+      "stake": {
+        "base": 50,
+        "martingale": {
+          "enabled": false,
+          "factor": 2,
+          "maxSteps": 2
+        }
+      },
+      "params": {
+        "emaFast": 5,
+        "emaSlow": 10,
+        "rsiPeriod": 7,
+        "rsiBuyLo": 30,
+        "rsiBuyHi": 75,
+        "rsiSellLo": 25,
+        "rsiSellHi": 70,
+        "pipValue": 0.0001,
+        "stopPips": 10,
+        "rr": 1.5,
+        "useSpeedFilter": 1,
+        "minPriceSpeed": 0.0003,
+        "speedTicks": 5,
+        "multiplier": 100,
+        "tradeStart": 7,
+        "tradeEnd": 12,
+        "tradeStart2": 12,
+        "tradeEnd2": 17,
+        "tradeStart3": 20,
+        "tradeEnd3": 22
+      },
+      "riskPerTradePct": 1,
+      "maxHoldMinutes": 10,
+      "minMinutesBetweenTrades": 3,
+      "manageStop": {
+        "breakEvenAtR": 0.5,
+        "trailAfterR": 0.6,
+        "trailGapR": 0.3
+      },
+      "botDailyStopPct": 3,
+      "botLossStreakStop": 4
     }
   ]
 }

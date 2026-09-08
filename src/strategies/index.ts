@@ -1064,6 +1064,95 @@ const btcConfluence: Strategy = {
 };
 
 // ============================================================================
+// 14) fx_hft_scalp — EUR/USD HFT scalper M1 (spec do usuário, porte de EA MQL4).
+//     Avalia A CADA TICK (não só no fecho da vela): EMA5 x EMA10 + RSI(7) + filtro
+//     de velocidade do preço. Stop apertado (~10 pips), alvo rr 1.5 (~15 pips).
+//       COMPRA: cruzamento bullish das EMAs  OU  (EMA5>EMA10 + preço acima da EMA5
+//               + momentum p/ cima);  RSI na faixa [rsiBuyLo, rsiBuyHi] (30-75).
+//       VENDA: espelho, RSI em [rsiSellLo, rsiSellHi] (25-70).
+//     Filtro de velocidade: |preço - preço de speedTicks atrás| >= minPriceSpeed.
+//     Janelas de sessão (até 3, UTC): Londres 7-12, overlap 12-17, US 20-22.
+//     Pula NFP (1ª sexta do mês ~12:15-13:15 UTC).
+//     NÃO tem: filtro de spread (a Deriv não cota spread — a comissão do
+//     multiplicador já embute o custo) nem "3 ordens simultâneas" (o motor abre
+//     1 posição por bot); trailing 5 pips = manageStop no config.
+//     AVISO: scalp de 10 pips com multiplicador -> a comissão (~0.05-0.15 R por
+//     round-trip) pesa MUITO. Forward-test em demo, stake baixo.
+// ============================================================================
+const fxHftScalp: Strategy = {
+  name: "fx_hft_scalp",
+  warmup: 20,
+  kind: "candle",
+  evaluate(ctx: StrategyContext): TradeIntent | null {
+    const p = ctx.params;
+    const emaFastP = Math.round(p.emaFast ?? 5);
+    const emaSlowP = Math.round(p.emaSlow ?? 10);
+    const rsiP = Math.round(p.rsiPeriod ?? 7);
+    const rsiBuyLo = p.rsiBuyLo ?? 30;
+    const rsiBuyHi = p.rsiBuyHi ?? 75;
+    const rsiSellLo = p.rsiSellLo ?? 25;
+    const rsiSellHi = p.rsiSellHi ?? 70;
+    const pip = p.pipValue ?? 0.0001;
+    const slPips = p.stopPips ?? 10;
+    const rr = p.rr ?? 1.5;
+    const mult = p.multiplier ?? 100;
+    const speedOn = (p.useSpeedFilter ?? 1) !== 0;
+    const minSpeed = p.minPriceSpeed ?? 0.0003;
+    const speedTicks = Math.round(p.speedTicks ?? 5);
+
+    const m1 = ctx.candles;
+    if (m1.length < emaSlowP + rsiP + 3) return null;
+    if (ctx.prices.length < speedTicks + 2) return null;
+
+    const lastEp = m1[m1.length - 1]!.epoch;
+    const d = new Date(lastEp * 1000);
+    const hf = d.getUTCHours() + d.getUTCMinutes() / 60;
+    const inSession =
+      inWin(hf, p.tradeStart ?? 7, p.tradeEnd ?? 12) ||
+      (p.tradeStart2 != null && inWin(hf, p.tradeStart2, p.tradeEnd2 ?? 24)) ||
+      (p.tradeStart3 != null && inWin(hf, p.tradeStart3, p.tradeEnd3 ?? 24));
+    if (!inSession) return null;
+    // pula NFP: 1ª sexta do mês, ~12:15-13:15 UTC
+    if (d.getUTCDay() === 5 && d.getUTCDate() <= 7 && hf >= 12.25 && hf <= 13.25) return null;
+
+    const closes = m1.map((c) => c.close);
+    const live = ctx.price || closes[closes.length - 1]!;
+    const series = [...closes, live]; // preço vivo = fecho da barra em formação
+
+    const eF = ema(series, emaFastP);
+    const eS = ema(series, emaSlowP);
+    const eFprev = ema(closes, emaFastP);
+    const eSprev = ema(closes, emaSlowP);
+    const rv = rsi(series, rsiP);
+    if (eF == null || eS == null || eFprev == null || eSprev == null || rv == null) return null;
+
+    // filtro de velocidade
+    if (speedOn) {
+      const past = ctx.prices[ctx.prices.length - 1 - speedTicks] ?? live;
+      if (Math.abs(live - past) < minSpeed) return null;
+    }
+
+    const bullCross = eFprev <= eSprev && eF > eS;
+    const bearCross = eFprev >= eSprev && eF < eS;
+    const momUp = live > closes[closes.length - 1]!;
+    const momDn = live < closes[closes.length - 1]!;
+
+    const stopDistance = slPips * pip;
+
+    const buy = (bullCross || (eF > eS && momUp && live > eF)) && rv > rsiBuyLo && rv < rsiBuyHi;
+    const sell = (bearCross || (eF < eS && momDn && live < eF)) && rv > rsiSellLo && rv < rsiSellHi;
+
+    if (buy) {
+      return { contractType: "MULTUP", durationTicks: 0, tag: "fx_buy", multiplier: mult, stopDistance, rr };
+    }
+    if (sell) {
+      return { contractType: "MULTDOWN", durationTicks: 0, tag: "fx_sell", multiplier: mult, stopDistance, rr };
+    }
+    return null;
+  },
+};
+
+// ============================================================================
 // ÍNDICES OTC (Tokyo N225, Sydney AS51, Frankfurt GDAXI) — sem multiplicadores.
 // Só CALL/PUT binário, duração mínima 15 min, payout ~+82% → breakeven ~55% de
 // acerto. Operam só na janela de sessão do próprio índice (params.tradeStart/End).
@@ -1169,6 +1258,7 @@ for (const s of [
   cryptoEmaRsiTrend,
   ilfLiquiditySweep,
   btcConfluence,
+  fxHftScalp,
   idxSessionMomo,
   idxOrb,
 ] as Strategy[]) {
